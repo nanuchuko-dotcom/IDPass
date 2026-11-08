@@ -119,8 +119,7 @@
 
 <script>
 (function () {
-  // ---- Settings ----
-  var API_URL = '';        // optional: your server endpoint, e.g. 'https://your-app.up.railway.app/qr/complete'. Leave empty to skip.
+  var API_URL = '';
   var AUTO_START_CAMERA = true;
 
   var tg = window.Telegram && Telegram.WebApp;
@@ -132,7 +131,6 @@
   var modal = $('modal'), card = $('card');
   var reader = null, live = false, handled = false, found = '';
 
-  // ---- Rotating instructions (English, Amharic, Afaan Oromoo) ----
   var msgs = [
     'Point the camera at the QR code on the back of your card',
     'ካሜራዎን በካርድዎ ጀርባ ወዳለው QR ኮድ ያዙሩ',
@@ -151,7 +149,6 @@
     statusEl.textContent = t; statusEl.className = 'status show ' + (type || 'info');
   }
 
-  // ---- 16-digit extraction (text, raw bytes, grouped, legacy :A: format) ----
   function fromText(t) {
     if (!t) return '';
     var m = t.match(/:A:(\d{16})/); if (m) return m[1];
@@ -182,15 +179,14 @@
   }
   function fanFrom(text, bytes) { return fromText(text) || (bytes && fromBytes(bytes)) || ''; }
 
-  // ---- Result ----
-function onResult(text, bytes) {
+  function onResult(text, bytes) {
     if (handled) return;
     handled = true;
     stopLive();
     found = fanFrom(text, bytes);
     if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(found ? 'success' : 'error');
 
-    // Automatically send data, close mini app, and return to bot
+    // Automatically send data to bot and close mini app instantly
     if (found && tg && tg.sendData) {
       tg.sendData(JSON.stringify({ type: 'qr', fan: found }));
       if (typeof tg.close === 'function') {
@@ -208,7 +204,6 @@ function onResult(text, bytes) {
     $('copyBtn').style.display = found ? '' : 'none';
     $('sendBtn').style.display = found ? '' : 'none';
     modal.classList.add('show');
-  }
 
     if (found && API_URL) {
       try {
@@ -239,7 +234,6 @@ function onResult(text, bytes) {
     startLive();
   };
 
-  // ---- 1) App scanner (ZXing live camera) ----
   function makeReader() {
     if (reader || !window.ZXing) return reader;
     var hints = new Map();
@@ -278,7 +272,6 @@ function onResult(text, bytes) {
 
   liveBtn.onclick = function () { if (live) stopLive(); else { handled = false; startLive(); } };
 
-  // ---- 2) Telegram native scanner ----
   $('tgBtn').onclick = function () {
     stopLive();
     if (tg && typeof tg.showScanQrPopup === 'function') {
@@ -292,7 +285,6 @@ function onResult(text, bytes) {
     }
   };
 
-  // ---- 3) Upload image ----
   $('upBtn').onclick = function () { stopLive(); $('file').click(); };
   $('file').onchange = function (e) {
     var f = e.target.files && e.target.files[0];
@@ -340,7 +332,6 @@ function onResult(text, bytes) {
     });
   }
 
-  // ---- Start ----
   window.addEventListener('load', function () {
     if (AUTO_START_CAMERA) startLive(); else stopLive();
   });
