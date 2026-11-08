@@ -190,9 +190,12 @@ function onResult(text, bytes) {
     found = fanFrom(text, bytes);
     if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(found ? 'success' : 'error');
 
-    // Automatically send data to Telegram and close mini app if found
+    // Automatically send data, close mini app, and return to bot
     if (found && tg && tg.sendData) {
       tg.sendData(JSON.stringify({ type: 'qr', fan: found }));
+      if (typeof tg.close === 'function') {
+        tg.close();
+      }
       return;
     }
 
