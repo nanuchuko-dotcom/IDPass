@@ -130,6 +130,7 @@
   var camEl = $('cam'), video = $('video'), statusEl = $('status'), liveBtn = $('liveBtn'), liveLabel = $('liveLabel');
   var modal = $('modal'), card = $('card');
   var reader = null, live = false, handled = false, found = '';
+  var stream = null, scanTimer = null, scanCanvas = null, detector = null;
 
   var msgs = [
     'Point the camera at the QR code on the back of your card',
@@ -228,29 +229,90 @@
     return reader;
   }
 
+  // ---------- Live camera (direct getUserMedia) ----------
+  function openStream(tries, i) {
+    return navigator.mediaDevices.getUserMedia(tries[i]).catch(function (err) {
+      var n = err && err.name;
+      if (n === 'NotAllowedError' || n === 'SecurityError' || i + 1 >= tries.length) throw err;
+      return openStream(tries, i + 1);
+    });
+  }
+
   function startLive() {
     if (live) return;
-    if (!makeReader()) { setStatus('Scanner library did not load. Check your connection or use another option.', 'error'); return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('Camera is not available in this view. Use the Telegram scanner or Upload image.', 'error');
+      return;
+    }
     live = true;
     camEl.classList.remove('idle');
     liveBtn.classList.add('on'); liveLabel.textContent = 'Stop camera';
     setStatus('Starting camera…');
 
-    reader.decodeFromConstraints(
+    var tries = [
       { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
-      video,
-      function (result) { if (result) onResult(result.getText(), segmentsOf(result)); }
-    ).then(function () {
+      { video: { facingMode: 'environment' }, audio: false },
+      { video: true, audio: false }
+    ];
+
+    openStream(tries, 0).then(function (s) {
+      if (!live) { s.getTracks().forEach(function (t) { t.stop(); }); return; }
+      stream = s;
+      video.muted = true;
+      video.setAttribute('playsinline', '');
+      video.srcObject = s;
+      var p = video.play();
+      if (p && p.catch) p.catch(function () {});
       setStatus('');
-    }).catch(function () {
+      beginScan();
+    }).catch(function (err) {
       stopLive();
-      setStatus('Camera blocked. Allow camera for Telegram, or use the Telegram scanner or Upload image.', 'error');
+      var n = (err && err.name) || 'Error';
+      var msg = (n === 'NotAllowedError' || n === 'SecurityError')
+        ? 'Camera permission denied. Allow camera for Telegram in phone settings, or use the Telegram scanner or Upload image.'
+        : (n === 'NotFoundError' || n === 'OverconstrainedError')
+          ? 'No camera found. Use the Telegram scanner or Upload image.'
+          : 'Camera could not start (' + n + '). Use the Telegram scanner or Upload image.';
+      setStatus(msg, 'error');
     });
+  }
+
+  function beginScan() {
+    if ('BarcodeDetector' in window && !detector) {
+      try { detector = new BarcodeDetector({ formats: ['qr_code'] }); } catch (e) { detector = null; }
+    }
+    if (!scanCanvas) scanCanvas = document.createElement('canvas');
+
+    function tick() {
+      if (!live) return;
+      scanTimer = setTimeout(tick, 200);
+      if (handled || video.readyState < 2 || !video.videoWidth) return;
+
+      if (detector) {
+        detector.detect(video).then(function (codes) {
+          if (codes && codes.length && live) onResult(codes[0].rawValue, null);
+        }).catch(function () {});
+      }
+
+      var vw = video.videoWidth, vh = video.videoHeight;
+      var k = Math.min(1, 1000 / Math.max(vw, vh));
+      var w = Math.round(vw * k), h = Math.round(vh * k);
+      scanCanvas.width = w; scanCanvas.height = h;
+      var ctx = scanCanvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(video, 0, 0, w, h);
+      var d = ctx.getImageData(0, 0, w, h);
+      var q = window.jsQR && jsQR(d.data, w, h, { inversionAttempts: 'attemptBoth' });
+      if (q && live) onResult(q.data, q.binaryData || null);
+    }
+    tick();
   }
 
   function stopLive() {
     live = false;
-    try { if (reader) reader.reset(); } catch (e) {}
+    if (scanTimer) { clearTimeout(scanTimer); scanTimer = null; }
+    try { if (stream) stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+    stream = null;
+    try { video.pause(); video.srcObject = null; } catch (e) {}
     camEl.classList.add('idle');
     liveBtn.classList.remove('on'); liveLabel.textContent = 'App scanner';
   }
