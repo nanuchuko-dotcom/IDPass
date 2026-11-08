@@ -179,22 +179,35 @@
   }
   function fanFrom(text, bytes) { return fromText(text) || (bytes && fromBytes(bytes)) || ''; }
 
-  function onResult(text, bytes) {
+function onResult(text, bytes) {
     if (handled) return;
     handled = true;
     stopLive();
     found = fanFrom(text, bytes);
     if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(found ? 'success' : 'error');
 
-    // Automatically redirect to bot via deep link to eliminate the green service message
-    if (found) {
-      var botUsername = 'newfaydamukerabot';
-      if (tg && typeof tg.close === 'function') {
+    // Send both FAN and full raw scanned QR payload to bot via WebApp data
+    if (found && tg && tg.sendData) {
+      tg.sendData(JSON.stringify({ 
+        fan: found, 
+        qr_payload: text || found 
+      }));
+      if (typeof tg.close === 'function') {
         tg.close();
       }
-      window.location.href = 'https://t.me/' + botUsername + '?start=' + found;
       return;
     }
+
+    // Fallback modal if no valid 16-digit number is found
+    card.classList.toggle('fail', !found);
+    $('tick').textContent = found ? '✓' : '!';
+    $('mTitle').textContent = found ? 'QR scanned' : 'No 16-digit number';
+    $('mNum').textContent = found ? found.replace(/(\d{4})(?=\d)/g, '$1 ') : '—';
+    $('mDesc').textContent = found ? 'The 16-digit number was found in this QR code.' : 'This QR code was read, but it has no 16-digit number. Try again with the card’s back QR.';
+    $('copyBtn').style.display = found ? '' : 'none';
+    $('sendBtn').style.display = found ? '' : 'none';
+    modal.classList.add('show');
+  }
 
     // Fallback modal if no valid 16-digit number is found
     card.classList.toggle('fail', !found);
