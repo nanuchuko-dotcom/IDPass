@@ -79,7 +79,7 @@
 </header>
 
 <main>
-  <div class="cam" id="cam">
+  <div class="cam idle" id="cam">
     <video id="video" playsinline muted autoplay></video>
     <div class="reticle"><i></i><i></i><i></i><i></i><b></b></div>
     <div class="off" id="off">Camera is off. Tap App scanner to start.</div>
@@ -88,7 +88,7 @@
 </main>
 
 <nav>
-  <button id="liveBtn" class="on">
+  <button id="liveBtn">
     <svg viewBox="0 0 24 24"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
     <span id="liveLabel">App scanner</span>
   </button>
@@ -119,12 +119,10 @@
 
 <script>
 (function () {
-  var API_URL = '';
   var AUTO_START_CAMERA = true;
 
   var tg = window.Telegram && Telegram.WebApp;
   if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('#0b1220'); tg.setBackgroundColor('#0b1220'); } catch (e) {} }
-  var params = new URLSearchParams(location.search);
 
   var $ = function (id) { return document.getElementById(id); };
   var camEl = $('cam'), video = $('video'), statusEl = $('status'), liveBtn = $('liveBtn'), liveLabel = $('liveLabel');
@@ -179,14 +177,13 @@
   }
   function fanFrom(text, bytes) { return fromText(text) || (bytes && fromBytes(bytes)) || ''; }
 
-function onResult(text, bytes) {
+  function onResult(text, bytes) {
     if (handled) return;
     handled = true;
     stopLive();
     found = fanFrom(text, bytes);
     if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(found ? 'success' : 'error');
 
-    // Send both FAN and full raw scanned QR payload to bot via WebApp data
     if (found && tg && tg.sendData) {
       tg.sendData(JSON.stringify({ 
         fan: found, 
@@ -198,18 +195,6 @@ function onResult(text, bytes) {
       return;
     }
 
-    // Fallback modal if no valid 16-digit number is found
-    card.classList.toggle('fail', !found);
-    $('tick').textContent = found ? '✓' : '!';
-    $('mTitle').textContent = found ? 'QR scanned' : 'No 16-digit number';
-    $('mNum').textContent = found ? found.replace(/(\d{4})(?=\d)/g, '$1 ') : '—';
-    $('mDesc').textContent = found ? 'The 16-digit number was found in this QR code.' : 'This QR code was read, but it has no 16-digit number. Try again with the card’s back QR.';
-    $('copyBtn').style.display = found ? '' : 'none';
-    $('sendBtn').style.display = found ? '' : 'none';
-    modal.classList.add('show');
-  }
-
-    // Fallback modal if no valid 16-digit number is found
     card.classList.toggle('fail', !found);
     $('tick').textContent = found ? '✓' : '!';
     $('mTitle').textContent = found ? 'QR scanned' : 'No 16-digit number';
@@ -253,7 +238,7 @@ function onResult(text, bytes) {
     setStatus('Starting camera…');
 
     reader.decodeFromConstraints(
-      { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+      { video: { facingMode: { ideal: 'environment' } }, audio: false },
       video,
       function (result) { if (result) onResult(result.getText(), segmentsOf(result)); }
     ).then(function () {
