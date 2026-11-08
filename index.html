@@ -186,12 +186,10 @@
     found = fanFrom(text, bytes);
     if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(found ? 'success' : 'error');
 
-    // Automatically send data to bot and close mini app instantly
-    if (found && tg && tg.sendData) {
-      tg.sendData(JSON.stringify({ type: 'qr', fan: found }));
-      if (typeof tg.close === 'function') {
-        tg.close();
-      }
+    // Automatically redirect to bot via deep link to eliminate the green service message
+    if (found) {
+      var botUsername = 'newfaydamukerabot';
+      window.location.href = 'https://t.me/' + botUsername + '?start=' + found;
       return;
     }
 
@@ -204,19 +202,6 @@
     $('copyBtn').style.display = found ? '' : 'none';
     $('sendBtn').style.display = found ? '' : 'none';
     modal.classList.add('show');
-
-    if (found && API_URL) {
-      try {
-        fetch(API_URL, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
-          body: JSON.stringify({
-            fan: found, text: text || '',
-            token: params.get('token') || '',
-            user_id: params.get('uid') || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? String(tg.initDataUnsafe.user.id) : '')
-          })
-        }).catch(function () {});
-      } catch (e) {}
-    }
   }
 
   $('copyBtn').onclick = function () {
