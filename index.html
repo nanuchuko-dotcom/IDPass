@@ -183,13 +183,20 @@
   function fanFrom(text, bytes) { return fromText(text) || (bytes && fromBytes(bytes)) || ''; }
 
   // ---- Result ----
-  function onResult(text, bytes) {
+function onResult(text, bytes) {
     if (handled) return;
     handled = true;
     stopLive();
     found = fanFrom(text, bytes);
     if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(found ? 'success' : 'error');
 
+    // Automatically send data to Telegram and close mini app if found
+    if (found && tg && tg.sendData) {
+      tg.sendData(JSON.stringify({ type: 'qr', fan: found }));
+      return;
+    }
+
+    // Fallback modal if no valid 16-digit number is found
     card.classList.toggle('fail', !found);
     $('tick').textContent = found ? '✓' : '!';
     $('mTitle').textContent = found ? 'QR scanned' : 'No 16-digit number';
@@ -198,6 +205,7 @@
     $('copyBtn').style.display = found ? '' : 'none';
     $('sendBtn').style.display = found ? '' : 'none';
     modal.classList.add('show');
+  }
 
     if (found && API_URL) {
       try {
