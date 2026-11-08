@@ -4,9 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>QR Scanner</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script>
+window.onerror = function (msg, src, line) {
+  var show = function () {
+    var d = document.createElement('div');
+    d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99;background:#7f1d1d;color:#fff;font:12px monospace;padding:8px;';
+    d.textContent = 'JS error: ' + msg + ' (line ' + line + ')';
+    document.body.appendChild(d);
+  };
+  if (document.body) show(); else document.addEventListener('DOMContentLoaded', show);
+};
+</script>
+<script async src="https://telegram.org/js/telegram-web-app.js"></script>
+<script async src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
 <style>
   :root {
     --bg: #0b1220; --surface: #141d30; --line: #22304a;
@@ -26,7 +37,7 @@
   .sub.fade { opacity: 0; }
 
   main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 16px; gap: 12px; min-height: 0; overflow: hidden; }
-  
+
   /* Camera box is capped so it can never overlap the bottom nav */
   .cam { position: relative; width: min(340px, 100%, calc(var(--tg-viewport-stable-height, 100vh) - 300px)); aspect-ratio: 1; border-radius: 22px; overflow: hidden; background: #000; box-shadow: 0 0 0 1px var(--line); z-index: 1; flex: 0 0 auto; min-width: 140px; }
   .cam video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
@@ -36,7 +47,7 @@
   }
   .cam.idle .off { display: flex; }
   .cam.idle video, .cam.idle .reticle { display: none; }
-  
+
   .reticle { position: absolute; inset: 14%; pointer-events: none; z-index: 3; }
   .reticle i { position: absolute; width: 28px; height: 28px; border: 0 solid var(--scan); }
   .reticle i:nth-child(1) { top: 0; left: 0; border-width: 4px 0 0 4px; border-top-left-radius: 12px; }
@@ -128,12 +139,21 @@
   // Set to false so the UI loads instantly without black camera freeze on startup
   var AUTO_START_CAMERA = false;
 
-  var tg = window.Telegram && Telegram.WebApp;
-  if (tg) {
-    tg.ready(); tg.expand();
-    try { tg.setHeaderColor('#0b1220'); tg.setBackgroundColor('#0b1220'); } catch (e) {}
-    try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e) {}
+  // Telegram script loads async, so it is looked up lazily (never blocks the page)
+  var tg = null, tgInit = false;
+  function initTg() {
+    if (!tg && window.Telegram && Telegram.WebApp) tg = Telegram.WebApp;
+    if (tg && !tgInit) {
+      tgInit = true;
+      try { tg.ready(); } catch (e) {}
+      try { tg.expand(); } catch (e) {}
+      try { tg.setHeaderColor('#0b1220'); tg.setBackgroundColor('#0b1220'); } catch (e) {}
+      try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e) {}
+    }
+    return tg;
   }
+  initTg();
+  window.addEventListener('load', initTg);
 
   var $ = function (id) { return document.getElementById(id); };
   var camEl = $('cam'), video = $('video'), statusEl = $('status'), liveBtn = $('liveBtn'), liveLabel = $('liveLabel');
@@ -193,14 +213,15 @@
     if (handled) return;
     handled = true;
     stopLive();
+    initTg();
     found = fanFrom(text, bytes);
     if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(found ? 'success' : 'error');
 
     // Send both FAN and full raw scanned QR payload to bot via WebApp data
     if (found && tg && tg.sendData) {
-      tg.sendData(JSON.stringify({ 
-        fan: found, 
-        qr_payload: text || found 
+      tg.sendData(JSON.stringify({
+        fan: found,
+        qr_payload: text || found
       }));
       if (typeof tg.close === 'function') {
         tg.close();
@@ -224,6 +245,7 @@
       .catch(function () { setStatus('Copy failed. Select the number and copy it.', 'error'); });
   };
   $('sendBtn').onclick = function () {
+    initTg();
     if (tg && tg.sendData) tg.sendData(JSON.stringify({ type: 'qr', fan: found }));
     else setStatus('Open this app from your bot to send the number.', 'error');
   };
@@ -315,6 +337,7 @@
 
   $('tgBtn').addEventListener('click', function () {
     stopLive();
+    initTg();
     if (tg && typeof tg.showScanQrPopup === 'function') {
       tg.showScanQrPopup({ text: 'Scan the QR code' }, function (data) {
         if (!data) return false;
@@ -369,3 +392,15 @@
         };
         img.onerror = function () { resolve(null); };
         img.src = url;
+      });
+    });
+  }
+
+  window.addEventListener('load', function () {
+    if (AUTO_START_CAMERA) startLive(); else stopLive();
+  });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) stopLive(); });
+})();
+</script>
+</body>
+</html>
