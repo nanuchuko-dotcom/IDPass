@@ -189,6 +189,9 @@
     // Automatically redirect to bot via deep link to eliminate the green service message
     if (found) {
       var botUsername = 'newfaydamukerabot';
+      if (tg && typeof tg.close === 'function') {
+        tg.close();
+      }
       window.location.href = 'https://t.me/' + botUsername + '?start=' + found;
       return;
     }
