@@ -121,6 +121,7 @@
 (function () {
   var API_URL = '';
   var AUTO_START_CAMERA = true;
+  var BOT_USERNAME = 'newfaydamukerabot';
 
   var tg = window.Telegram && Telegram.WebApp;
   if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('#0b1220'); tg.setBackgroundColor('#0b1220'); } catch (e) {} }
@@ -187,19 +188,11 @@
     found = fanFrom(text, bytes);
     if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(found ? 'success' : 'error');
 
-    // Automatically redirect to bot via deep link to eliminate the green service message
-    if (found) {
-      var botUsername = 'newfaydamukerabot';
-      window.location.href = 'https://t.me/' + botUsername + '?start=' + found;
-      return;
-    }
-
-    // Fallback modal if no valid 16-digit number is found
     card.classList.toggle('fail', !found);
     $('tick').textContent = found ? '✓' : '!';
     $('mTitle').textContent = found ? 'QR scanned' : 'No 16-digit number';
     $('mNum').textContent = found ? found.replace(/(\d{4})(?=\d)/g, '$1 ') : '—';
-    $('mDesc').textContent = found ? 'The 16-digit number was found in this QR code.' : 'This QR code was read, but it has no 16-digit number. Try again with the card’s back QR.';
+    $('mDesc').textContent = found ? 'The 16-digit number was found. Tap Send to Telegram to continue in the bot.' : 'This QR code was read, but it has no 16-digit number. Try again with the card’s back QR.';
     $('copyBtn').style.display = found ? '' : 'none';
     $('sendBtn').style.display = found ? '' : 'none';
     modal.classList.add('show');
@@ -211,8 +204,10 @@
       .catch(function () { setStatus('Copy failed. Select the number and copy it.', 'error'); });
   };
   $('sendBtn').onclick = function () {
-    if (tg && tg.sendData) tg.sendData(JSON.stringify({ type: 'qr', fan: found }));
-    else setStatus('Open this app from your bot to send the number.', 'error');
+    if (!found) return;
+    var link = 'https://t.me/' + BOT_USERNAME + '?start=' + found;
+    if (tg && typeof tg.openTelegramLink === 'function') tg.openTelegramLink(link);
+    else window.location.href = link;
   };
   $('againBtn').onclick = function () {
     modal.classList.remove('show'); $('copyBtn').textContent = 'Copy';
@@ -229,7 +224,7 @@
     return reader;
   }
 
-  // ---------- Live camera (direct getUserMedia) ----------
+  // ---------- Live camera: ZXing first (works on laptop), direct getUserMedia as fallback (works on phone) ----------
   function openStream(tries, i) {
     return navigator.mediaDevices.getUserMedia(tries[i]).catch(function (err) {
       var n = err && err.name;
@@ -238,16 +233,13 @@
     });
   }
 
-  function startLive() {
-    if (live) return;
+  function startDirect() {
+    if (!live) return;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      stopLive();
       setStatus('Camera is not available in this view. Use the Telegram scanner or Upload image.', 'error');
       return;
     }
-    live = true;
-    camEl.classList.remove('idle');
-    liveBtn.classList.add('on'); liveLabel.textContent = 'Stop camera';
-    setStatus('Starting camera…');
 
     var tries = [
       { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
@@ -274,6 +266,28 @@
           ? 'No camera found. Use the Telegram scanner or Upload image.'
           : 'Camera could not start (' + n + '). Use the Telegram scanner or Upload image.';
       setStatus(msg, 'error');
+    });
+  }
+
+  function startLive() {
+    if (live) return;
+    live = true;
+    camEl.classList.remove('idle');
+    liveBtn.classList.add('on'); liveLabel.textContent = 'Stop camera';
+    setStatus('Starting camera…');
+
+    var r = makeReader();
+    if (!r) { startDirect(); return; }
+
+    r.decodeFromConstraints(
+      { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+      video,
+      function (result) { if (result) onResult(result.getText(), segmentsOf(result)); }
+    ).then(function () {
+      setStatus('');
+    }).catch(function () {
+      try { r.reset(); } catch (e) {}
+      startDirect();
     });
   }
 
@@ -310,6 +324,7 @@
   function stopLive() {
     live = false;
     if (scanTimer) { clearTimeout(scanTimer); scanTimer = null; }
+    try { if (reader) reader.reset(); } catch (e) {}
     try { if (stream) stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
     stream = null;
     try { video.pause(); video.srcObject = null; } catch (e) {}
