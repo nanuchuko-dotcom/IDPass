@@ -24,66 +24,65 @@ window.onerror = function (msg, src, line) {
     --primary: #2f6df6; --text: #f4f7fb; --muted: #93a1b8; --ok: #34d399; --err: #f87171; --scan: #5cc8ff;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-  html, body { height: 100%; }
+  html, body { height: 100%; width: 100%; overflow: hidden; }
   body {
     background: var(--bg); color: var(--text);
     font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-    display: flex; flex-direction: column; overflow: hidden;
-    height: var(--tg-viewport-stable-height, 100%);
+    display: flex; flex-direction: column;
+    height: 100vh;
+    height: var(--tg-viewport-stable-height, 100vh);
   }
-  header { padding: 18px 20px 6px; text-align: center; flex: 0 0 auto; }
-  h1 { font-size: 19px; font-weight: 700; }
-  .sub { margin-top: 6px; min-height: 2.6em; font-size: 14px; line-height: 1.35; color: var(--muted); transition: opacity .3s; }
+  header { padding: 14px 20px 4px; text-align: center; flex: 0 0 auto; }
+  h1 { font-size: 18px; font-weight: 700; }
+  .sub { margin-top: 4px; min-height: 2.4em; font-size: 13px; line-height: 1.35; color: var(--muted); transition: opacity .3s; }
   .sub.fade { opacity: 0; }
 
-  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 16px; gap: 12px; min-height: 0; overflow: hidden; }
+  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px 16px; gap: 10px; min-height: 0; overflow: hidden; }
 
-  /* Camera box is capped so it can never overlap the bottom nav */
-  .cam { position: relative; width: min(340px, 100%, calc(var(--tg-viewport-stable-height, 100vh) - 300px)); aspect-ratio: 1; border-radius: 22px; overflow: hidden; background: #000; box-shadow: 0 0 0 1px var(--line); z-index: 1; flex: 0 0 auto; min-width: 140px; }
+  .cam { position: relative; width: min(300px, 100%, 50vh); aspect-ratio: 1; border-radius: 20px; overflow: hidden; background: #000; box-shadow: 0 0 0 1px var(--line); z-index: 1; flex: 0 0 auto; }
   .cam video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
   .cam .off {
     position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center;
-    padding: 24px; color: var(--muted); font-size: 14px; background: var(--surface); z-index: 2;
+    padding: 20px; color: var(--muted); font-size: 13px; background: var(--surface); z-index: 2;
   }
   .cam.idle .off { display: flex; }
   .cam.idle video, .cam.idle .reticle { display: none; }
 
   .reticle { position: absolute; inset: 14%; pointer-events: none; z-index: 3; }
-  .reticle i { position: absolute; width: 28px; height: 28px; border: 0 solid var(--scan); }
-  .reticle i:nth-child(1) { top: 0; left: 0; border-width: 4px 0 0 4px; border-top-left-radius: 12px; }
-  .reticle i:nth-child(2) { top: 0; right: 0; border-width: 4px 4px 0 0; border-top-right-radius: 12px; }
-  .reticle i:nth-child(3) { bottom: 0; left: 0; border-width: 0 0 4px 4px; border-bottom-left-radius: 12px; }
-  .reticle i:nth-child(4) { bottom: 0; right: 0; border-width: 0 4px 4px 0; border-bottom-right-radius: 12px; }
-  .reticle b { position: absolute; left: 4%; right: 4%; height: 3px; border-radius: 2px; background: var(--scan); box-shadow: 0 0 12px var(--scan); animation: sweep 2.2s ease-in-out infinite alternate; }
+  .reticle i { position: absolute; width: 24px; height: 24px; border: 0 solid var(--scan); }
+  .reticle i:nth-child(1) { top: 0; left: 0; border-width: 4px 0 0 4px; border-top-left-radius: 10px; }
+  .reticle i:nth-child(2) { top: 0; right: 0; border-width: 4px 4px 0 0; border-top-right-radius: 10px; }
+  .reticle i:nth-child(3) { bottom: 0; left: 0; border-width: 0 0 4px 4px; border-bottom-left-radius: 10px; }
+  .reticle i:nth-child(4) { bottom: 0; right: 0; border-width: 0 4px 4px 0; border-bottom-right-radius: 10px; }
+  .reticle b { position: absolute; left: 4%; right: 4%; height: 3px; border-radius: 2px; background: var(--scan); box-shadow: 0 0 10px var(--scan); animation: sweep 2.2s ease-in-out infinite alternate; }
   @keyframes sweep { from { top: 6%; } to { top: 92%; } }
-  @media (prefers-reduced-motion: reduce) { .reticle b { animation: none; top: 50%; } }
 
-  .status { width: 100%; max-width: 340px; padding: 9px 14px; border-radius: 12px; font-size: 13px; text-align: center; display: none; z-index: 4; flex: 0 0 auto; }
+  .status { width: 100%; max-width: 320px; padding: 8px 12px; border-radius: 10px; font-size: 12px; text-align: center; display: none; z-index: 4; flex: 0 0 auto; }
   .status.show { display: block; }
   .status.info { background: rgba(47,109,246,.15); color: #a9c4ff; }
   .status.error { background: rgba(248,113,113,.15); color: #fecaca; }
 
-  nav { flex: 0 0 auto; display: flex; gap: 10px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--line); position: relative; z-index: 10; touch-action: manipulation; }
+  nav { flex: 0 0 auto; display: flex; gap: 8px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--line); position: relative; z-index: 100; pointer-events: auto; }
   nav button {
-    flex: 1; height: 62px; border: 0; border-radius: 14px; background: var(--surface); color: var(--text);
-    font-size: 12.5px; font-weight: 600; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; cursor: pointer;
-    touch-action: manipulation; position: relative; z-index: 10;
+    flex: 1; height: 58px; border: 0; border-radius: 12px; background: var(--surface); color: var(--text);
+    font-size: 12px; font-weight: 600; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer;
+    pointer-events: auto; position: relative; z-index: 101;
   }
   nav button.on { background: var(--primary); }
-  nav svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+  nav svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
   nav button span { pointer-events: none; }
   button:focus-visible { outline: 3px solid var(--scan); outline-offset: 2px; }
 
-  .modal { position: fixed; inset: 0; background: rgba(5,9,16,.92); display: none; align-items: center; justify-content: center; padding: 24px; z-index: 20; }
+  .modal { position: fixed; inset: 0; background: rgba(5,9,16,.92); display: none; align-items: center; justify-content: center; padding: 24px; z-index: 200; }
   .modal.show { display: flex; }
-  .card { width: 100%; max-width: 330px; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 26px 22px; text-align: center; display: flex; flex-direction: column; gap: 14px; align-items: center; }
-  .card .tick { width: 54px; height: 54px; border-radius: 50%; background: rgba(52,211,153,.18); color: var(--ok); font-size: 28px; display: flex; align-items: center; justify-content: center; }
+  .card { width: 100%; max-width: 320px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 24px 20px; text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+  .card .tick { width: 50px; height: 50px; border-radius: 50%; background: rgba(52,211,153,.18); color: var(--ok); font-size: 26px; display: flex; align-items: center; justify-content: center; }
   .card.fail .tick { background: rgba(248,113,113,.18); color: var(--err); }
-  .card h2 { font-size: 19px; }
-  .num { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 20px; letter-spacing: .06em; color: var(--scan); background: var(--bg); border: 1px dashed var(--line); border-radius: 12px; padding: 10px 14px; word-break: break-all; user-select: text; -webkit-user-select: text; }
-  .card p { font-size: 13px; color: var(--muted); line-height: 1.4; }
+  .card h2 { font-size: 18px; }
+  .num { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 18px; letter-spacing: .06em; color: var(--scan); background: var(--bg); border: 1px dashed var(--line); border-radius: 10px; padding: 8px 12px; word-break: break-all; user-select: text; -webkit-user-select: text; }
+  .card p { font-size: 12px; color: var(--muted); line-height: 1.4; }
   .row { display: flex; gap: 8px; width: 100%; }
-  .row button { flex: 1; padding: 12px 8px; border: 0; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; background: var(--bg); color: var(--text); }
+  .row button { flex: 1; padding: 10px 8px; border: 0; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; background: var(--bg); color: var(--text); }
   .row button.main { background: var(--primary); }
   input[type=file] { display: none; }
 </style>
@@ -136,10 +135,6 @@ window.onerror = function (msg, src, line) {
 
 <script>
 (function () {
-  // Set to false so the UI loads instantly without black camera freeze on startup
-  var AUTO_START_CAMERA = false;
-
-  // Telegram script loads async, so it is looked up lazily (never blocks the page)
   var tg = null, tgInit = false;
   function initTg() {
     if (!tg && window.Telegram && Telegram.WebApp) tg = Telegram.WebApp;
@@ -148,7 +143,6 @@ window.onerror = function (msg, src, line) {
       try { tg.ready(); } catch (e) {}
       try { tg.expand(); } catch (e) {}
       try { tg.setHeaderColor('#0b1220'); tg.setBackgroundColor('#0b1220'); } catch (e) {}
-      try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e) {}
     }
     return tg;
   }
@@ -217,7 +211,6 @@ window.onerror = function (msg, src, line) {
     found = fanFrom(text, bytes);
     if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(found ? 'success' : 'error');
 
-    // Send both FAN and full raw scanned QR payload to bot via WebApp data
     if (found && tg && tg.sendData) {
       tg.sendData(JSON.stringify({
         fan: found,
@@ -264,7 +257,6 @@ window.onerror = function (msg, src, line) {
     return reader;
   }
 
-  // ---- Live camera: own getUserMedia stream + frame decoding (fixes black video) ----
   function scanFrame() {
     if (!live || handled) return;
     try {
@@ -283,7 +275,7 @@ window.onerror = function (msg, src, line) {
           try {
             var res = reader.decodeFromCanvas(scanCanvas);
             if (res) { onResult(res.getText(), segmentsOf(res)); return; }
-          } catch (e) { /* no QR in this frame */ }
+          } catch (e) {}
         }
       }
     } catch (e) {}
@@ -293,7 +285,7 @@ window.onerror = function (msg, src, line) {
   function startLive() {
     if (live) return;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setStatus('Camera is not supported here. Use the Telegram scanner or Upload image.', 'error');
+      setStatus('Camera requires HTTPS. Use Telegram scanner or Upload image.', 'error');
       return;
     }
     live = true;
@@ -319,7 +311,7 @@ window.onerror = function (msg, src, line) {
       scanFrame();
     }).catch(function () {
       stopLive();
-      setStatus('Camera blocked. Allow camera for Telegram, or use the Telegram scanner or Upload image.', 'error');
+      setStatus('Camera blocked. Allow camera access or use Telegram scanner / Upload image.', 'error');
     });
   }
 
@@ -333,9 +325,13 @@ window.onerror = function (msg, src, line) {
     liveBtn.classList.remove('on'); liveLabel.textContent = 'App scanner';
   }
 
-  liveBtn.addEventListener('click', function () { if (live) stopLive(); else { handled = false; startLive(); } });
+  liveBtn.onclick = function (e) {
+    e.preventDefault();
+    if (live) stopLive(); else { handled = false; startLive(); }
+  };
 
-  $('tgBtn').addEventListener('click', function () {
+  $('tgBtn').onclick = function (e) {
+    e.preventDefault();
     stopLive();
     initTg();
     if (tg && typeof tg.showScanQrPopup === 'function') {
@@ -345,11 +341,16 @@ window.onerror = function (msg, src, line) {
         return true;
       });
     } else {
-      setStatus('The Telegram scanner needs Telegram 6.4 or newer. Use App scanner or Upload image.', 'error');
+      setStatus('Telegram scanner requires Telegram 6.4+. Use App scanner or Upload image.', 'error');
     }
-  });
+  };
 
-  $('upBtn').addEventListener('click', function () { stopLive(); $('file').click(); });
+  $('upBtn').onclick = function (e) {
+    e.preventDefault();
+    stopLive();
+    $('file').click();
+  };
+
   $('file').onchange = function (e) {
     var f = e.target.files && e.target.files[0];
     if (!f) return;
@@ -396,9 +397,6 @@ window.onerror = function (msg, src, line) {
     });
   }
 
-  window.addEventListener('load', function () {
-    if (AUTO_START_CAMERA) startLive(); else stopLive();
-  });
   document.addEventListener('visibilitychange', function () { if (document.hidden) stopLive(); });
 })();
 </script>
