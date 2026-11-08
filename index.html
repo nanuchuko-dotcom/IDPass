@@ -1,404 +1,633 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>QR Scanner</title>
-<script>
-window.onerror = function (msg, src, line) {
-  var show = function () {
-    var d = document.createElement('div');
-    d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99;background:#7f1d1d;color:#fff;font:12px monospace;padding:8px;';
-    d.textContent = 'JS error: ' + msg + ' (line ' + line + ')';
-    document.body.appendChild(d);
-  };
-  if (document.body) show(); else document.addEventListener('DOMContentLoaded', show);
-};
-</script>
-<script async src="https://telegram.org/js/telegram-web-app.js"></script>
-<script async src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
-<script async src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
-<style>
-  :root {
-    --bg: #0b1220; --surface: #141d30; --line: #22304a;
-    --primary: #2f6df6; --text: #f4f7fb; --muted: #93a1b8; --ok: #34d399; --err: #f87171; --scan: #5cc8ff;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-  html, body { height: 100%; width: 100%; overflow: hidden; }
-  body {
-    background: var(--bg); color: var(--text);
-    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-    display: flex; flex-direction: column;
-    height: 100vh;
-    height: var(--tg-viewport-stable-height, 100vh);
-  }
-  header { padding: 14px 20px 4px; text-align: center; flex: 0 0 auto; }
-  h1 { font-size: 18px; font-weight: 700; }
-  .sub { margin-top: 4px; min-height: 2.4em; font-size: 13px; line-height: 1.35; color: var(--muted); transition: opacity .3s; }
-  .sub.fade { opacity: 0; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Robust QR Code Scanner & Debugger</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest" crossorigin="anonymous"></script>
+  <!-- jsQR Library for custom canvas decoding with explicit CORS handling -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" crossorigin="anonymous"></script>
+  <!-- HTML5 QR Code Scanner Library with explicit CORS -->
+  <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js" crossorigin="anonymous"></script>
 
-  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px 16px; gap: 10px; min-height: 0; overflow: hidden; }
-
-  .cam { position: relative; width: min(300px, 100%, 50vh); aspect-ratio: 1; border-radius: 20px; overflow: hidden; background: #000; box-shadow: 0 0 0 1px var(--line); z-index: 1; flex: 0 0 auto; }
-  .cam video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
-  .cam .off {
-    position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center;
-    padding: 20px; color: var(--muted); font-size: 13px; background: var(--surface); z-index: 2;
-  }
-  .cam.idle .off { display: flex; }
-  .cam.idle video, .cam.idle .reticle { display: none; }
-
-  .reticle { position: absolute; inset: 14%; pointer-events: none; z-index: 3; }
-  .reticle i { position: absolute; width: 24px; height: 24px; border: 0 solid var(--scan); }
-  .reticle i:nth-child(1) { top: 0; left: 0; border-width: 4px 0 0 4px; border-top-left-radius: 10px; }
-  .reticle i:nth-child(2) { top: 0; right: 0; border-width: 4px 4px 0 0; border-top-right-radius: 10px; }
-  .reticle i:nth-child(3) { bottom: 0; left: 0; border-width: 0 0 4px 4px; border-bottom-left-radius: 10px; }
-  .reticle i:nth-child(4) { bottom: 0; right: 0; border-width: 0 4px 4px 0; border-bottom-right-radius: 10px; }
-  .reticle b { position: absolute; left: 4%; right: 4%; height: 3px; border-radius: 2px; background: var(--scan); box-shadow: 0 0 10px var(--scan); animation: sweep 2.2s ease-in-out infinite alternate; }
-  @keyframes sweep { from { top: 6%; } to { top: 92%; } }
-
-  .status { width: 100%; max-width: 320px; padding: 8px 12px; border-radius: 10px; font-size: 12px; text-align: center; display: none; z-index: 4; flex: 0 0 auto; }
-  .status.show { display: block; }
-  .status.info { background: rgba(47,109,246,.15); color: #a9c4ff; }
-  .status.error { background: rgba(248,113,113,.15); color: #fecaca; }
-
-  nav { flex: 0 0 auto; display: flex; gap: 8px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--line); position: relative; z-index: 100; pointer-events: auto; }
-  nav button {
-    flex: 1; height: 58px; border: 0; border-radius: 12px; background: var(--surface); color: var(--text);
-    font-size: 12px; font-weight: 600; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer;
-    pointer-events: auto; position: relative; z-index: 101;
-  }
-  nav button.on { background: var(--primary); }
-  nav svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-  nav button span { pointer-events: none; }
-  button:focus-visible { outline: 3px solid var(--scan); outline-offset: 2px; }
-
-  .modal { position: fixed; inset: 0; background: rgba(5,9,16,.92); display: none; align-items: center; justify-content: center; padding: 24px; z-index: 200; }
-  .modal.show { display: flex; }
-  .card { width: 100%; max-width: 320px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 24px 20px; text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center; }
-  .card .tick { width: 50px; height: 50px; border-radius: 50%; background: rgba(52,211,153,.18); color: var(--ok); font-size: 26px; display: flex; align-items: center; justify-content: center; }
-  .card.fail .tick { background: rgba(248,113,113,.18); color: var(--err); }
-  .card h2 { font-size: 18px; }
-  .num { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 18px; letter-spacing: .06em; color: var(--scan); background: var(--bg); border: 1px dashed var(--line); border-radius: 10px; padding: 8px 12px; word-break: break-all; user-select: text; -webkit-user-select: text; }
-  .card p { font-size: 12px; color: var(--muted); line-height: 1.4; }
-  .row { display: flex; gap: 8px; width: 100%; }
-  .row button { flex: 1; padding: 10px 8px; border: 0; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; background: var(--bg); color: var(--text); }
-  .row button.main { background: var(--primary); }
-  input[type=file] { display: none; }
-</style>
+  <style>
+    /* Custom Scrollbar for Debug Console */
+    .console-scroll::-webkit-scrollbar {
+      width: 6px;
+    }
+    .console-scroll::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    .console-scroll::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    
+    /* Smooth Transitions */
+    .tab-btn {
+      transition: all 0.2s ease-in-out;
+    }
+    
+    /* Target Overlay Animation */
+    @keyframes scan-laser {
+      0% { top: 10%; opacity: 0.3; }
+      50% { opacity: 0.9; }
+      100% { top: 90%; opacity: 0.3; }
+    }
+    .scan-line {
+      position: absolute;
+      left: 5%;
+      width: 90%;
+      height: 2px;
+      background: #3b82f6;
+      box-shadow: 0 0 12px #3b82f6, 0 0 4px #60a5fa;
+      animation: scan-laser 2.5s infinite ease-in-out;
+    }
+  </style>
 </head>
-<body>
+<body class="bg-[#0b1120] text-slate-100 min-h-screen flex flex-col font-sans antialiased overflow-x-hidden selection:bg-blue-600 selection:text-white">
 
-<header>
-  <h1>QR Scanner</h1>
-  <p class="sub" id="sub"></p>
-</header>
-
-<main>
-  <div class="cam idle" id="cam">
-    <video id="video" playsinline webkit-playsinline muted autoplay></video>
-    <div class="reticle"><i></i><i></i><i></i><i></i><b></b></div>
-    <div class="off" id="off">Camera is off. Tap App scanner to start.</div>
-  </div>
-  <div class="status" id="status"></div>
-</main>
-
-<nav>
-  <button id="liveBtn" type="button">
-    <svg viewBox="0 0 24 24"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-    <span id="liveLabel">App scanner</span>
-  </button>
-  <button id="tgBtn" type="button">
-    <svg viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M4 12h16"/></svg>
-    <span>Telegram scanner</span>
-  </button>
-  <button id="upBtn" type="button">
-    <svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
-    <span>Upload image</span>
-  </button>
-</nav>
-<input type="file" id="file" accept="image/*">
-
-<div class="modal" id="modal">
-  <div class="card" id="card">
-    <div class="tick" id="tick">✓</div>
-    <h2 id="mTitle">QR scanned</h2>
-    <div class="num" id="mNum"></div>
-    <p id="mDesc"></p>
-    <div class="row">
-      <button id="copyBtn">Copy</button>
-      <button id="sendBtn" class="main">Send to Telegram</button>
+  <!-- TOP ALERTS & ERROR BANNER -->
+  <div id="errorBanner" class="hidden bg-rose-600/90 backdrop-blur text-white px-4 py-2.5 shadow-lg border-b border-rose-500/50 flex items-center justify-between z-50 text-xs md:text-sm">
+    <div class="flex items-center space-x-2.5 overflow-hidden">
+      <i data-lucide="alert-triangle" class="w-5 h-5 flex-shrink-0 text-amber-200"></i>
+      <div class="truncate">
+        <span class="font-semibold" id="errorTitle">JS Error:</span> 
+        <span id="errorMessage" class="font-mono text-rose-100">Script error. (line 0)</span>
+      </div>
     </div>
-    <div class="row"><button id="againBtn">Scan again</button></div>
+    <div class="flex items-center space-x-2 flex-shrink-0 ml-2">
+      <button onclick="toggleDebugConsole(true)" class="px-2 py-1 bg-rose-800 hover:bg-rose-700 rounded text-xs transition">Details</button>
+      <button onclick="dismissErrorBanner()" class="p-1 hover:bg-rose-700 rounded transition"><i data-lucide="x" class="w-4 h-4"></i></button>
+    </div>
   </div>
-</div>
 
-<script>
-(function () {
-  var tg = null, tgInit = false;
-  function initTg() {
-    if (!tg && window.Telegram && Telegram.WebApp) tg = Telegram.WebApp;
-    if (tg && !tgInit) {
-      tgInit = true;
-      try { tg.ready(); } catch (e) {}
-      try { tg.expand(); } catch (e) {}
-      try { tg.setHeaderColor('#0b1220'); tg.setBackgroundColor('#0b1220'); } catch (e) {}
-    }
-    return tg;
-  }
-  initTg();
-  window.addEventListener('load', initTg);
+  <!-- MAIN CONTAINER -->
+  <main class="flex-1 flex flex-col max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-4">
+    
+    <!-- HEADER -->
+    <header class="text-center space-y-1">
+      <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center justify-center gap-2">
+        <i data-lucide="qr-code" class="w-6 h-6 text-blue-500"></i>
+        QR Scanner Pro
+      </h1>
+      <!-- Amharic Instruction Subtext -->
+      <p class="text-xs sm:text-sm text-slate-400 font-medium">
+        ካሜራዎን በኮዱ ጀርባ ወዳለው QR ኮድ ይያዙ
+      </p>
+    </header>
 
-  var $ = function (id) { return document.getElementById(id); };
-  var camEl = $('cam'), video = $('video'), statusEl = $('status'), liveBtn = $('liveBtn'), liveLabel = $('liveLabel');
-  var modal = $('modal'), card = $('card');
-  var reader = null, live = false, handled = false, found = '';
-  var stream = null, scanTimer = null, scanCanvas = document.createElement('canvas'), scanCtx = null, frameN = 0;
+    <!-- SECURE CONTEXT WARNING BANNER (HTTP vs HTTPS check) -->
+    <div id="insecureWarning" class="hidden bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-amber-300 text-xs flex items-center space-x-3">
+      <i data-lucide="shield-alert" class="w-5 h-5 flex-shrink-0 text-amber-400"></i>
+      <div>
+        <span class="font-semibold">Insecure Context Detected!</span> 
+        Camera access requires HTTPS or <code>localhost</code>. Scanning over unencrypted HTTP (e.g. LAN IP) will be blocked by modern browsers.
+      </div>
+    </div>
 
-  var msgs = [
-    'Point the camera at the QR code on the back of your card',
-    'ካሜራዎን በካርድዎ ጀርባ ወዳለው QR ኮድ ያዙሩ',
-    'Kaameraa gara QR code duuba kaardii keessanii qabaa'
-  ];
-  var mi = 0, subEl = $('sub');
-  subEl.textContent = msgs[0];
-  setInterval(function () {
-    if (handled) return;
-    subEl.classList.add('fade');
-    setTimeout(function () { mi = (mi + 1) % msgs.length; subEl.textContent = msgs[mi]; subEl.classList.remove('fade'); }, 300);
-  }, 6000);
+    <!-- MAIN VIEWPORT CONTAINER -->
+    <div class="relative w-full aspect-square max-w-sm sm:max-w-md mx-auto bg-slate-900/80 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden flex flex-col items-center justify-center">
+      
+      <!-- SCANNER CAMERA DISPLAY -->
+      <div id="scannerViewport" class="relative w-full h-full flex flex-col items-center justify-center">
+        
+        <!-- Video Stream Container -->
+        <div id="interactiveReader" class="w-full h-full object-cover hidden"></div>
 
-  function setStatus(t, type) {
-    if (!t) { statusEl.className = 'status'; return; }
-    statusEl.textContent = t; statusEl.className = 'status show ' + (type || 'info');
-  }
+        <!-- Default Camera Off State -->
+        <div id="cameraOffState" class="flex flex-col items-center justify-center p-6 text-center space-y-3">
+          <div class="p-4 bg-slate-800/80 rounded-full border border-slate-700/50 shadow-inner">
+            <i data-lucide="camera-off" class="w-8 h-8 text-slate-400"></i>
+          </div>
+          <div class="space-y-1">
+            <p class="text-slate-300 font-medium text-sm" id="cameraStatusText">Camera is off. Tap App scanner to start.</p>
+            <p class="text-slate-500 text-xs">Ensure camera permissions are granted.</p>
+          </div>
+          <button id="startCamBtn" onclick="switchTab('app')" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-lg shadow-blue-500/20 transition">
+            Enable Camera
+          </button>
+        </div>
 
-  function fromText(t) {
-    if (!t) return '';
-    var m = t.match(/:A:(\d{16})/); if (m) return m[1];
-    m = t.match(/(?:^|[^\d])(\d{16})(?:[^\d]|$)/); if (m) return m[1];
-    m = t.match(/(?:^|[^\d])(\d{4})[\s\-.]+(\d{4})[\s\-.]+(\d{4})[\s\-.]+(\d{4})(?:[^\d]|$)/);
-    if (m) return m[1] + m[2] + m[3] + m[4];
-    return '';
-  }
-  function fromBytes(bytes) {
-    var run = '';
-    for (var i = 0; i < bytes.length; i++) {
-      var b = bytes[i] & 255;
-      if (b >= 48 && b <= 57) { run += String.fromCharCode(b); if (run.length === 16) return run; }
-      else run = '';
-    }
-    return '';
-  }
-  function segmentsOf(result) {
-    try {
-      var meta = result.getResultMetadata && result.getResultMetadata();
-      if (!meta) return null;
-      var segs = typeof meta.get === 'function' ? (meta.get(2) || meta.get(3) || meta.get('BYTE_SEGMENTS')) : null;
-      if (!segs || !segs.length) return null;
-      var all = [];
-      segs.forEach(function (s) { for (var i = 0; i < s.length; i++) all.push(s[i]); });
-      return all;
-    } catch (e) { return null; }
-  }
-  function fanFrom(text, bytes) { return fromText(text) || (bytes && fromBytes(bytes)) || ''; }
+        <!-- Scanning Overlay Box -->
+        <div id="scanOverlay" class="hidden absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
+          <div class="relative w-64 h-64 border-2 border-blue-500/40 rounded-2xl bg-blue-500/5 backdrop-blur-[1px]">
+            <!-- Corner Accents -->
+            <div class="absolute -top-0.5 -left-0.5 w-6 h-6 border-t-4 border-l-4 border-blue-500 rounded-tl-lg"></div>
+            <div class="absolute -top-0.5 -right-0.5 w-6 h-6 border-t-4 border-r-4 border-blue-500 rounded-tr-lg"></div>
+            <div class="absolute -bottom-0.5 -left-0.5 w-6 h-6 border-b-4 border-l-4 border-blue-500 rounded-bl-lg"></div>
+            <div class="absolute -bottom-0.5 -right-0.5 w-6 h-6 border-b-4 border-r-4 border-blue-500 rounded-br-lg"></div>
+            
+            <div class="scan-line"></div>
+          </div>
+          <p class="mt-4 text-xs font-medium text-blue-400 bg-slate-900/80 px-3 py-1 rounded-full border border-blue-500/30">
+            Align QR code within frame
+          </p>
+        </div>
 
-  function onResult(text, bytes) {
-    if (handled) return;
-    handled = true;
-    stopLive();
-    initTg();
-    found = fanFrom(text, bytes);
-    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(found ? 'success' : 'error');
+      </div>
 
-    if (found && tg && tg.sendData) {
-      tg.sendData(JSON.stringify({
-        fan: found,
-        qr_payload: text || found
-      }));
-      if (typeof tg.close === 'function') {
-        tg.close();
+      <!-- TELEGRAM SCANNER VIEW -->
+      <div id="telegramViewport" class="hidden absolute inset-0 bg-slate-950 p-6 flex flex-col items-center justify-center text-center space-y-4">
+        <div class="p-4 bg-sky-500/10 rounded-full border border-sky-500/20 text-sky-400">
+          <i data-lucide="send" class="w-10 h-10"></i>
+        </div>
+        <div class="space-y-1">
+          <h3 class="font-bold text-white text-base">Telegram Native Scanner</h3>
+          <p class="text-slate-400 text-xs max-w-xs" id="tgContextStatus">
+            Detecting Telegram WebApp environment...
+          </p>
+        </div>
+        <button id="tgScanTriggerBtn" onclick="triggerTelegramScanner()" class="px-5 py-2.5 bg-sky-500 hover:bg-sky-400 text-white font-medium text-xs rounded-xl shadow-lg shadow-sky-500/20 transition flex items-center space-x-2">
+          <i data-lucide="qr-code" class="w-4 h-4"></i>
+          <span>Open Telegram QR Scanner</span>
+        </button>
+      </div>
+
+      <!-- IMAGE UPLOAD VIEWPORT -->
+      <div id="uploadViewport" class="hidden absolute inset-0 bg-slate-900 p-6 flex flex-col items-center justify-center text-center">
+        <input type="file" id="qrFileInput" accept="image/*" class="hidden" onchange="handleImageUpload(event)">
+        
+        <div onclick="document.getElementById('qrFileInput').click()" class="w-full h-full border-2 border-dashed border-slate-700 hover:border-blue-500/50 bg-slate-800/30 hover:bg-slate-800/60 rounded-xl flex flex-col items-center justify-center p-6 cursor-pointer transition group">
+          <div class="p-3 bg-slate-800 group-hover:bg-blue-600/20 rounded-full text-slate-400 group-hover:text-blue-400 transition mb-3">
+            <i data-lucide="upload-cloud" class="w-8 h-8"></i>
+          </div>
+          <p class="text-slate-200 text-sm font-semibold">Click or drag image to scan</p>
+          <p class="text-slate-500 text-xs mt-1">Supports PNG, JPG, WEBP, SVG</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RESULT DISPLAY BOX -->
+    <div id="resultContainer" class="hidden bg-slate-900/90 border border-emerald-500/30 rounded-xl p-4 shadow-xl space-y-2">
+      <div class="flex items-center justify-between text-xs font-semibold text-emerald-400">
+        <span class="flex items-center gap-1.5">
+          <i data-lucide="check-circle-2" class="w-4 h-4"></i>
+          Scanned Result Successfully
+        </span>
+        <button onclick="clearResult()" class="text-slate-400 hover:text-white transition">Clear</button>
+      </div>
+      <div id="resultPayload" class="font-mono text-sm text-slate-100 bg-slate-950 p-3 rounded-lg border border-slate-800 break-all select-all">
+        <!-- Content inserted dynamically -->
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button onclick="copyResultToClipboard()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs flex items-center gap-1.5 transition">
+          <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+          <span>Copy Result</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- NAVIGATION TABS -->
+    <nav class="grid grid-cols-3 gap-2 p-1.5 bg-slate-900/90 rounded-2xl border border-slate-800 shadow-xl">
+      <button id="tabApp" onclick="switchTab('app')" class="tab-btn py-3 px-2 rounded-xl flex flex-col sm:flex-row items-center justify-center gap-2 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50">
+        <i data-lucide="video" class="w-4 h-4"></i>
+        <span>App scanner</span>
+      </button>
+
+      <button id="tabTelegram" onclick="switchTab('telegram')" class="tab-btn py-3 px-2 rounded-xl flex flex-col sm:flex-row items-center justify-center gap-2 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50">
+        <i data-lucide="scan-line" class="w-4 h-4"></i>
+        <span>Telegram scanner</span>
+      </button>
+
+      <button id="tabUpload" onclick="switchTab('upload')" class="tab-btn py-3 px-2 rounded-xl flex flex-col sm:flex-row items-center justify-center gap-2 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50">
+        <i data-lucide="upload" class="w-4 h-4"></i>
+        <span>Upload image</span>
+      </button>
+    </nav>
+
+    <!-- DEBUG CONSOLE PANEL TOGGLE & SYSTEM STATUS -->
+    <section class="bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+      <div class="px-4 py-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+          <span class="text-xs font-semibold text-slate-300">Live Console & Diagnostic Logs</span>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button onclick="clearDebugLog()" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 rounded text-[10px] transition">
+            Clear Logs
+          </button>
+          <button onclick="toggleDebugConsole()" class="px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded text-[10px] font-semibold transition flex items-center space-x-1">
+            <span id="consoleToggleLabel">Hide Console</span>
+            <i data-lucide="chevron-down" id="consoleToggleIcon" class="w-3 h-3"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Log Content Area -->
+      <div id="debugConsoleWrapper" class="transition-all duration-300">
+        <div id="debugLogs" class="console-scroll p-4 font-mono text-[11px] leading-relaxed bg-slate-950 text-slate-300 h-44 overflow-y-auto space-y-1.5 border-t border-slate-900">
+          <div class="text-slate-500 font-sans text-xs">System initialized. Awaiting user interaction...</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- JAVASCRIPT LOGIC -->
+  <script>
+    // System State Variables
+    let currentTab = null;
+    let html5QrScanner = null;
+    let isScanningActive = false;
+    let telegramWebApp = window.Telegram ? window.Telegram.WebApp : null;
+
+    // Initialize Lucide Icons on Load
+    document.addEventListener("DOMContentLoaded", () => {
+      if (window.lucide) {
+        lucide.createIcons();
       }
-      return;
-    }
-
-    card.classList.toggle('fail', !found);
-    $('tick').textContent = found ? '✓' : '!';
-    $('mTitle').textContent = found ? 'QR scanned' : 'No 16-digit number';
-    $('mNum').textContent = found ? found.replace(/(\d{4})(?=\d)/g, '$1 ') : '—';
-    $('mDesc').textContent = found ? 'The 16-digit number was found in this QR code.' : 'This QR code was read, but it has no 16-digit number. Try again with the card’s back QR.';
-    $('copyBtn').style.display = found ? '' : 'none';
-    $('sendBtn').style.display = found ? '' : 'none';
-    modal.classList.add('show');
-  }
-
-  $('copyBtn').onclick = function () {
-    (navigator.clipboard ? navigator.clipboard.writeText(found) : Promise.reject())
-      .then(function () { $('copyBtn').textContent = 'Copied'; })
-      .catch(function () { setStatus('Copy failed. Select the number and copy it.', 'error'); });
-  };
-  $('sendBtn').onclick = function () {
-    initTg();
-    if (tg && tg.sendData) tg.sendData(JSON.stringify({ type: 'qr', fan: found }));
-    else setStatus('Open this app from your bot to send the number.', 'error');
-  };
-  $('againBtn').onclick = function () {
-    modal.classList.remove('show'); $('copyBtn').textContent = 'Copy';
-    handled = false; found = ''; setStatus('');
-    startLive();
-  };
-
-  function makeReader() {
-    if (reader || !window.ZXing) return reader;
-    var hints = new Map();
-    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.QR_CODE]);
-    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-    reader = new ZXing.BrowserMultiFormatReader(hints, 300);
-    return reader;
-  }
-
-  function scanFrame() {
-    if (!live || handled) return;
-    try {
-      if (video.readyState >= 2 && video.videoWidth > 0) {
-        var vw = video.videoWidth, vh = video.videoHeight;
-        var k = Math.min(1, 900 / Math.max(vw, vh));
-        var w = Math.round(vw * k), h = Math.round(vh * k);
-        if (scanCanvas.width !== w || scanCanvas.height !== h) { scanCanvas.width = w; scanCanvas.height = h; scanCtx = null; }
-        if (!scanCtx) scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
-        scanCtx.drawImage(video, 0, 0, w, h);
-        var d = scanCtx.getImageData(0, 0, w, h);
-        var q = window.jsQR && jsQR(d.data, w, h, { inversionAttempts: 'attemptBoth' });
-        if (q) { onResult(q.data, q.binaryData || null); return; }
-        frameN++;
-        if (frameN % 2 === 0 && makeReader()) {
-          try {
-            var res = reader.decodeFromCanvas(scanCanvas);
-            if (res) { onResult(res.getText(), segmentsOf(res)); return; }
-          } catch (e) {}
-        }
-      }
-    } catch (e) {}
-    scanTimer = setTimeout(scanFrame, 120);
-  }
-
-  function startLive() {
-    if (live) return;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setStatus('Camera requires HTTPS. Use Telegram scanner or Upload image.', 'error');
-      return;
-    }
-    live = true;
-    camEl.classList.remove('idle');
-    liveBtn.classList.add('on'); liveLabel.textContent = 'Stop camera';
-    setStatus('Starting camera…');
-
-    navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: false
-    }).then(function (s) {
-      if (!live) { s.getTracks().forEach(function (t) { t.stop(); }); return null; }
-      stream = s;
-      video.setAttribute('playsinline', '');
-      video.setAttribute('webkit-playsinline', '');
-      video.muted = true;
-      video.srcObject = s;
-      return video.play();
-    }).then(function () {
-      if (!live) return;
-      setStatus('');
-      frameN = 0;
-      scanFrame();
-    }).catch(function () {
-      stopLive();
-      setStatus('Camera blocked. Allow camera access or use Telegram scanner / Upload image.', 'error');
+      initGlobalExceptionHandler();
+      checkSecureContext();
+      switchTab('telegram'); // Default tab matching user screenshot focus
+      logDebug("INFO", "Application loaded successfully. Security & CORS guards active.");
     });
-  }
 
-  function stopLive() {
-    live = false;
-    if (scanTimer) { clearTimeout(scanTimer); scanTimer = null; }
-    try { if (stream) stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
-    stream = null;
-    try { video.pause(); video.srcObject = null; } catch (e) {}
-    camEl.classList.add('idle');
-    liveBtn.classList.remove('on'); liveLabel.textContent = 'App scanner';
-  }
+    /* ==========================================================================
+       1. GLOBAL UNHANDLED ERROR & CORS HANDLER (Solves 'Script error line 0')
+       ========================================================================== */
+    function initGlobalExceptionHandler() {
+      // Catch standard runtime scripts errors
+      window.onerror = function (message, source, lineno, colno, error) {
+        let isCorsError = message.toLowerCase().includes("script error");
+        let formattedMsg = isCorsError 
+          ? "Cross-Origin (CORS) script exception. External script threw error without CORS headers." 
+          : `${message} (${source || 'unknown'}:${lineno}:${colno})`;
 
-  liveBtn.onclick = function (e) {
-    e.preventDefault();
-    if (live) stopLive(); else { handled = false; startLive(); }
-  };
+        showErrorBanner("Script Exception", formattedMsg);
+        logDebug("ERROR", `[GLOBAL ERROR] ${formattedMsg}`, { source, lineno, colno, errorStack: error ? error.stack : 'N/A' });
+        return false; // Allow standard browser reporting as well
+      };
 
-  $('tgBtn').onclick = function (e) {
-    e.preventDefault();
-    stopLive();
-    initTg();
-    if (tg && typeof tg.showScanQrPopup === 'function') {
-      tg.showScanQrPopup({ text: 'Scan the QR code' }, function (data) {
-        if (!data) return false;
-        onResult(data, null);
-        return true;
+      // Catch unhandled Promise rejections (e.g., getUserMedia failure)
+      window.addEventListener("unhandledrejection", function (event) {
+        let reason = event.reason || "Unhandled Promise Rejection";
+        let msg = reason.message || reason.name || String(reason);
+
+        showErrorBanner("Unhandled Promise", msg);
+        logDebug("ERROR", `[UNHANDLED REJECTION] ${msg}`, event.reason);
       });
-    } else {
-      setStatus('Telegram scanner requires Telegram 6.4+. Use App scanner or Upload image.', 'error');
     }
-  };
 
-  $('upBtn').onclick = function (e) {
-    e.preventDefault();
-    stopLive();
-    $('file').click();
-  };
+    function showErrorBanner(title, message) {
+      const banner = document.getElementById("errorBanner");
+      document.getElementById("errorTitle").innerText = title + ":";
+      document.getElementById("errorMessage").innerText = message;
+      banner.classList.remove("hidden");
+    }
 
-  $('file').onchange = function (e) {
-    var f = e.target.files && e.target.files[0];
-    if (!f) return;
-    setStatus('Reading image…');
-    var url = URL.createObjectURL(f);
-    decodeImage(url).then(function (r) {
-      URL.revokeObjectURL(url);
-      if (r) { setStatus(''); handled = false; onResult(r.text, r.bytes); }
-      else setStatus('No QR code found in this image. Use a sharp, high-resolution picture.', 'error');
-    });
-    $('file').value = '';
-  };
+    function dismissErrorBanner() {
+      document.getElementById("errorBanner").classList.add("hidden");
+    }
 
-  function decodeImage(url) {
-    var r = makeReader();
-    var first = r ? r.decodeFromImageUrl(url).then(function (res) {
-      return { text: res.getText(), bytes: segmentsOf(res) };
-    }).catch(function () { return null; }) : Promise.resolve(null);
+    function checkSecureContext() {
+      const isSecure = window.isSecureContext || location.hostname === "localhost" || location.hostname === "127.0.0.1";
+      if (!isSecure) {
+        document.getElementById("insecureWarning").classList.remove("hidden");
+        logDebug("WARN", "Running in insecure context (non-HTTPS/non-localhost). MediaDevices camera permission may be blocked.");
+      }
+    }
 
-    return first.then(function (hit) {
-      if (hit) return hit;
-      return new Promise(function (resolve) {
-        var img = new Image();
+    /* ==========================================================================
+       2. REAL-TIME DEBUG CONSOLE LOGGING
+       ========================================================================== */
+    function logDebug(type, message, details = null) {
+      const logContainer = document.getElementById("debugLogs");
+      if (!logContainer) return;
+
+      const time = new Date().toLocaleTimeString();
+      const entry = document.createElement("div");
+      entry.className = "flex items-start space-x-2 border-b border-slate-900/50 pb-1";
+
+      let colorClass = "text-slate-400";
+      let badgeClass = "bg-slate-800 text-slate-300";
+
+      if (type === "ERROR") {
+        colorClass = "text-rose-400";
+        badgeClass = "bg-rose-950/80 text-rose-300 border border-rose-800/50";
+      } else if (type === "WARN") {
+        colorClass = "text-amber-400";
+        badgeClass = "bg-amber-950/80 text-amber-300 border border-amber-800/50";
+      } else if (type === "SUCCESS") {
+        colorClass = "text-emerald-400";
+        badgeClass = "bg-emerald-950/80 text-emerald-300 border border-emerald-800/50";
+      } else if (type === "INFO") {
+        colorClass = "text-sky-300";
+        badgeClass = "bg-sky-950/80 text-sky-300 border border-sky-800/50";
+      }
+
+      let detailHtml = details ? `<pre class="mt-1 text-[10px] text-slate-500 overflow-x-auto">${typeof details === 'object' ? JSON.stringify(details, null, 2) : details}</pre>` : '';
+
+      entry.innerHTML = `
+        <span class="text-slate-600 flex-shrink-0 text-[10px]">${time}</span>
+        <span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${badgeClass}">${type}</span>
+        <div class="flex-1 ${colorClass} break-all">
+          ${escapeHtml(message)}
+          ${detailHtml}
+        </div>
+      `;
+
+      logContainer.appendChild(entry);
+      logContainer.scrollTop = logContainer.scrollHeight;
+    }
+
+    function clearDebugLog() {
+      const logContainer = document.getElementById("debugLogs");
+      logContainer.innerHTML = '<div class="text-slate-500 font-sans text-xs">Logs cleared. Monitoring active...</div>';
+    }
+
+    function toggleDebugConsole(forceOpen = false) {
+      const wrapper = document.getElementById("debugConsoleWrapper");
+      const label = document.getElementById("consoleToggleLabel");
+      const icon = document.getElementById("consoleToggleIcon");
+
+      if (forceOpen || wrapper.classList.contains("hidden")) {
+        wrapper.classList.remove("hidden");
+        label.innerText = "Hide Console";
+        icon.style.transform = "rotate(0deg)";
+      } else {
+        wrapper.classList.add("hidden");
+        label.innerText = "Show Console";
+        icon.style.transform = "rotate(180deg)";
+      }
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    /* ==========================================================================
+       3. NAVIGATION & TAB MANAGEMENT
+       ========================================================================== */
+    function switchTab(tab) {
+      if (currentTab === tab) return;
+      currentTab = tab;
+
+      logDebug("INFO", `Switched tab to: ${tab}`);
+      stopCameraEngine();
+
+      // UI Tab Button Styles Reset
+      ['App', 'Telegram', 'Upload'].forEach(t => {
+        const btn = document.getElementById(`tab${t}`);
+        btn.classList.remove('bg-blue-600', 'text-white', 'shadow-lg', 'shadow-blue-600/20', 'border', 'border-blue-500/30');
+        btn.classList.add('text-slate-400');
+      });
+
+      // Viewports Reset
+      document.getElementById("interactiveReader").classList.add("hidden");
+      document.getElementById("cameraOffState").classList.add("hidden");
+      document.getElementById("scanOverlay").classList.add("hidden");
+      document.getElementById("telegramViewport").classList.add("hidden");
+      document.getElementById("uploadViewport").classList.add("hidden");
+
+      // Activate Selected Tab
+      if (tab === 'app') {
+        const btn = document.getElementById('tabApp');
+        btn.classList.add('bg-blue-600', 'text-white', 'shadow-lg', 'shadow-blue-600/20', 'border', 'border-blue-500/30');
+        btn.classList.remove('text-slate-400');
+        startCameraEngine();
+      } else if (tab === 'telegram') {
+        const btn = document.getElementById('tabTelegram');
+        btn.classList.add('bg-blue-600', 'text-white', 'shadow-lg', 'shadow-blue-600/20', 'border', 'border-blue-500/30');
+        btn.classList.remove('text-slate-400');
+        document.getElementById("telegramViewport").classList.remove("hidden");
+        setupTelegramContext();
+      } else if (tab === 'upload') {
+        const btn = document.getElementById('tabUpload');
+        btn.classList.add('bg-blue-600', 'text-white', 'shadow-lg', 'shadow-blue-600/20', 'border', 'border-blue-500/30');
+        btn.classList.remove('text-slate-400');
+        document.getElementById("uploadViewport").classList.remove("hidden");
+      }
+    }
+
+    /* ==========================================================================
+       4. CAMERA ENGINE (SAFE INITIALIZATION & FALLBACKS)
+       ========================================================================== */
+    async function startCameraEngine() {
+      logDebug("INFO", "Initializing safe camera scanner instance...");
+
+      document.getElementById("interactiveReader").classList.remove("hidden");
+      document.getElementById("scanOverlay").classList.remove("hidden");
+
+      if (typeof Html5Qrcode === "undefined") {
+        logDebug("ERROR", "Html5Qrcode library failed to load or was blocked by script filter.");
+        showCameraErrorState("Scanner library missing or blocked.");
+        return;
+      }
+
+      try {
+        if (!html5QrScanner) {
+          html5QrScanner = new Html5Qrcode("interactiveReader", { verbose: false });
+        }
+
+        const config = {
+          fps: 15,
+          qrbox: { width: 250, height: 250 },
+          aspectRatio: 1.0
+        };
+
+        // Try environment camera first
+        await html5QrScanner.start(
+          { facingMode: "environment" },
+          config,
+          onScanSuccess,
+          onScanProgressError
+        ).then(() => {
+          isScanningActive = true;
+          logDebug("SUCCESS", "Camera stream started with facingMode: environment.");
+        }).catch(async (err) => {
+          logDebug("WARN", `Environment camera failed: ${err.message || err}. Attempting camera fallback...`);
+          
+          // Fallback to any available camera device
+          const devices = await Html5Qrcode.getCameras();
+          if (devices && devices.length > 0) {
+            const firstCamId = devices[0].id;
+            logDebug("INFO", `Falling back to camera ID: ${firstCamId}`);
+            await html5QrScanner.start(firstCamId, config, onScanSuccess, onScanProgressError);
+            isScanningActive = true;
+          } else {
+            throw new Error("No physical camera devices detected on this system.");
+          }
+        });
+
+      } catch (err) {
+        let errMessage = err.message || String(err);
+        logDebug("ERROR", `Camera Access Exception: ${errMessage}`, err);
+        showCameraErrorState(errMessage);
+      }
+    }
+
+    function stopCameraEngine() {
+      if (html5QrScanner && isScanningActive) {
+        html5QrScanner.stop().then(() => {
+          isScanningActive = false;
+          logDebug("INFO", "Camera stream stopped safely.");
+        }).catch((err) => {
+          logDebug("WARN", `Error stopping camera: ${err.message || err}`);
+        });
+      }
+    }
+
+    function showCameraErrorState(msg) {
+      document.getElementById("interactiveReader").classList.add("hidden");
+      document.getElementById("scanOverlay").classList.add("hidden");
+      
+      const offState = document.getElementById("cameraOffState");
+      offState.classList.remove("hidden");
+      document.getElementById("cameraStatusText").innerHTML = `<span class="text-rose-400 font-semibold">Camera Error:</span> ${escapeHtml(msg)}`;
+    }
+
+    function onScanSuccess(decodedText, decodedResult) {
+      logDebug("SUCCESS", `QR Code Decoded: "${decodedText}"`, decodedResult);
+      displayResult(decodedText);
+      
+      // Flash feed visual indicator
+      const overlay = document.getElementById("scanOverlay");
+      overlay.classList.add("border-emerald-500");
+      setTimeout(() => overlay.classList.remove("border-emerald-500"), 400);
+    }
+
+    function onScanProgressError(errorMessage) {
+      // Intentionally quiet to keep console clean during frame scanning attempts
+    }
+
+    /* ==========================================================================
+       5. TELEGRAM SCANNER INTEGRATION & FALLBACKS
+       ========================================================================== */
+    function setupTelegramContext() {
+      const statusElement = document.getElementById("tgContextStatus");
+      
+      if (telegramWebApp && telegramWebApp.initData) {
+        statusElement.innerHTML = `<span class="text-emerald-400">Telegram Mini App Context Active</span><br>Ready to trigger native Telegram QR scanner window.`;
+        logDebug("INFO", "Telegram WebApp context confirmed.", telegramWebApp.initDataUnsafe);
+      } else {
+        statusElement.innerHTML = `<span class="text-amber-400">Standard Browser Context</span><br>Outside Telegram Mini App. Click below to simulate or fallback to native scanner.`;
+        logDebug("WARN", "Telegram WebApp API not detected (window.Telegram.WebApp unavailable).");
+      }
+    }
+
+    function triggerTelegramScanner() {
+      logDebug("INFO", "Triggering Telegram QR scanner request...");
+      
+      if (telegramWebApp && typeof telegramWebApp.showScanQrPopup === "function") {
+        try {
+          telegramWebApp.showScanQrPopup({ text: "Align QR Code inside Telegram camera" }, (text) => {
+            logDebug("SUCCESS", `Telegram Native QR Scan Result: ${text}`);
+            displayResult(text);
+            return true; // Close Telegram popup on successful scan
+          });
+        } catch (err) {
+          logDebug("ERROR", `Failed to trigger Telegram showScanQrPopup: ${err.message}`, err);
+          showErrorBanner("Telegram QR Error", err.message);
+        }
+      } else {
+        logDebug("WARN", "Telegram API showScanQrPopup not available in standard browser. Redirecting to App Scanner tab.");
+        alert("Telegram WebApp context was not detected. Switching to App Camera scanner.");
+        switchTab('app');
+      }
+    }
+
+    /* ==========================================================================
+       6. IMAGE UPLOAD & CANVAS JSQR SCANNER
+       ========================================================================== */
+    function handleImageUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      logDebug("INFO", `Processing uploaded file: ${file.name} (${Math.round(file.size / 1024)} KB)`);
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const img = new Image();
         img.onload = function () {
-          var scales = [1, 0.6, 0.35];
-          for (var i = 0; i < scales.length; i++) {
-            var w = Math.round(img.naturalWidth * scales[i]), h = Math.round(img.naturalHeight * scales[i]);
-            var k = Math.min(1, 2200 / Math.max(w, h)); w = Math.round(w * k); h = Math.round(h * k);
-            var c = document.createElement('canvas'); c.width = w; c.height = h;
-            var ctx = c.getContext('2d', { willReadFrequently: true });
-            ctx.drawImage(img, 0, 0, w, h);
-            var d = ctx.getImageData(0, 0, w, h);
-            var q = window.jsQR && jsQR(d.data, w, h, { inversionAttempts: 'attemptBoth' });
-            if (q) {
-              resolve({ text: q.data, bytes: q.binaryData || null });
+          try {
+            // Create offscreen canvas for decoding via jsQR
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0, img.width, img.height);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            
+            if (typeof jsQR === "undefined") {
+              logDebug("ERROR", "jsQR decoder library not available.");
+              showErrorBanner("Decoder Missing", "jsQR engine was blocked or failed to load.");
               return;
             }
-          }
-          resolve(null);
-        };
-        img.onerror = function () { resolve(null); };
-        img.src = url;
-      });
-    });
-  }
 
-  document.addEventListener('visibilitychange', function () { if (document.hidden) stopLive(); });
-})();
-</script>
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: "dontInvert",
+            });
+
+            if (code) {
+              logDebug("SUCCESS", `Image decoded successfully: "${code.data}"`);
+              displayResult(code.data);
+            } else {
+              logDebug("WARN", "No valid QR code detected in the uploaded image.");
+              alert("No valid QR code found in this image. Please try another clear photo.");
+            }
+          } catch (err) {
+            logDebug("ERROR", `Failed decoding image canvas: ${err.message}`, err);
+            showErrorBanner("Canvas Error", err.message);
+          }
+        };
+        img.onerror = function (err) {
+          logDebug("ERROR", "Failed to load uploaded file into Image object.");
+          showErrorBanner("File Read Error", "Unable to load selected image format.");
+        };
+        img.src = e.target.result;
+      };
+
+      reader.readAsDataURL(file);
+    }
+
+    /* ==========================================================================
+       7. RESULT DISPLAY & UTILITIES
+       ========================================================================== */
+    function displayResult(data) {
+      const resultContainer = document.getElementById("resultContainer");
+      const resultPayload = document.getElementById("resultPayload");
+
+      resultPayload.innerText = data;
+      resultContainer.classList.remove("hidden");
+      
+      // Scroll result into view
+      resultContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function clearResult() {
+      document.getElementById("resultContainer").classList.add("hidden");
+      document.getElementById("resultPayload").innerText = "";
+      logDebug("INFO", "Result cleared.");
+    }
+
+    function copyResultToClipboard() {
+      const text = document.getElementById("resultPayload").innerText;
+      if (!text) return;
+
+      // Fallback safe clipboard execution for strict iframe permissions
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+
+        logDebug("INFO", "Scanned content copied to clipboard.");
+        alert("Copied scanner result to clipboard!");
+      } catch (err) {
+        logDebug("ERROR", `Clipboard copy failed: ${err.message}`);
+      }
+    }
+  </script>
 </body>
 </html>
