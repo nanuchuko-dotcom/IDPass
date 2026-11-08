@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>QR Scanner</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<style>
+  :root {
+    --bg: #0b1220; --surface: #141d30; --line: #22304a;
+    --primary: #2f6df6; --text: #f4f7fb; --muted: #93a1b8; --ok: #34d399; --err: #f87171; --scan: #5cc8ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  header { padding: 18px 20px 6px; text-align: center; }
+  h1 { font-size: 19px; font-weight: 700; }
+  .sub { margin-top: 6px; min-height: 2.6em; font-size: 14px; line-height: 1.35; color: var(--muted); transition: opacity .3s; }
+  .sub.fade { opacity: 0; }
+
+  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 16px; gap: 12px; min-height: 0; }
+  .cam { position: relative; width: 100%; max-width: 340px; aspect-ratio: 1; border-radius: 22px; overflow: hidden; background: #000; box-shadow: 0 0 0 1px var(--line); }
+  .cam video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cam .off {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center;
+    padding: 24px; color: var(--muted); font-size: 14px; background: var(--surface);
+  }
+  .cam.idle .off { display: flex; }
+  .cam.idle video, .cam.idle .reticle { display: none; }
+  .reticle { position: absolute; inset: 14%; pointer-events: none; }
+  .reticle i { position: absolute; width: 28px; height: 28px; border: 0 solid var(--scan); }
+  .reticle i:nth-child(1) { top: 0; left: 0; border-width: 4px 0 0 4px; border-top-left-radius: 12px; }
+  .reticle i:nth-child(2) { top: 0; right: 0; border-width: 4px 4px 0 0; border-top-right-radius: 12px; }
+  .reticle i:nth-child(3) { bottom: 0; left: 0; border-width: 0 0 4px 4px; border-bottom-left-radius: 12px; }
+  .reticle i:nth-child(4) { bottom: 0; right: 0; border-width: 0 4px 4px 0; border-bottom-right-radius: 12px; }
+  .reticle b { position: absolute; left: 4%; right: 4%; height: 3px; border-radius: 2px; background: var(--scan); box-shadow: 0 0 12px var(--scan); animation: sweep 2.2s ease-in-out infinite alternate; }
+  @keyframes sweep { from { top: 6%; } to { top: 92%; } }
+  @media (prefers-reduced-motion: reduce) { .reticle b { animation: none; top: 50%; } }
+
+  .status { width: 100%; max-width: 340px; padding: 9px 14px; border-radius: 12px; font-size: 13px; text-align: center; display: none; }
+  .status.show { display: block; }
+  .status.info { background: rgba(47,109,246,.15); color: #a9c4ff; }
+  .status.error { background: rgba(248,113,113,.15); color: #fecaca; }
+
+  nav { display: flex; gap: 10px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--line); }
+  nav button {
+    flex: 1; height: 62px; border: 0; border-radius: 14px; background: var(--surface); color: var(--text);
+    font-size: 12.5px; font-weight: 600; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; cursor: pointer;
+  }
+  nav button.on { background: var(--primary); }
+  nav svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  button:focus-visible { outline: 3px solid var(--scan); outline-offset: 2px; }
+
+  .modal { position: fixed; inset: 0; background: rgba(5,9,16,.92); display: none; align-items: center; justify-content: center; padding: 24px; z-index: 10; }
+  .modal.show { display: flex; }
+  .card { width: 100%; max-width: 330px; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 26px 22px; text-align: center; display: flex; flex-direction: column; gap: 14px; align-items: center; }
+  .card .tick { width: 54px; height: 54px; border-radius: 50%; background: rgba(52,211,153,.18); color: var(--ok); font-size: 28px; display: flex; align-items: center; justify-content: center; }
+  .card.fail .tick { background: rgba(248,113,113,.18); color: var(--err); }
+  .card h2 { font-size: 19px; }
+  .num { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 20px; letter-spacing: .06em; color: var(--scan); background: var(--bg); border: 1px dashed var(--line); border-radius: 12px; padding: 10px 14px; word-break: break-all; user-select: text; -webkit-user-select: text; }
+  .card p { font-size: 13px; color: var(--muted); line-height: 1.4; }
+  .row { display: flex; gap: 8px; width: 100%; }
+  .row button { flex: 1; padding: 12px 8px; border: 0; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; background: var(--bg); color: var(--text); }
+  .row button.main { background: var(--primary); }
+  input[type=file] { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>QR Scanner</h1>
+  <p class="sub" id="sub"></p>
+</header>
+
+<main>
+  <div class="cam" id="cam">
+    <video id="video" playsinline muted autoplay></video>
+    <div class="reticle"><i></i><i></i><i></i><i></i><b></b></div>
+    <div class="off" id="off">Camera is off. Tap App scanner to start.</div>
+  </div>
+  <div class="status" id="status"></div>
+</main>
+
+<nav>
+  <button id="liveBtn" class="on">
+    <svg viewBox="0 0 24 24"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+    <span id="liveLabel">App scanner</span>
+  </button>
+  <button id="tgBtn">
+    <svg viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M4 12h16"/></svg>
+    Telegram scanner
+  </button>
+  <button id="upBtn">
+    <svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
+    Upload image
+  </button>
+</nav>
+<input type="file" id="file" accept="image/*">
+
+<div class="modal" id="modal">
+  <div class="card" id="card">
+    <div class="tick" id="tick">✓</div>
+    <h2 id="mTitle">QR scanned</h2>
+    <div class="num" id="mNum"></div>
+    <p id="mDesc"></p>
+    <div class="row">
+      <button id="copyBtn">Copy</button>
+      <button id="sendBtn" class="main">Send to Telegram</button>
+    </div>
+    <div class="row"><button id="againBtn">Scan again</button></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // ---- Settings ----
+  var API_URL = '';        // optional: your server endpoint, e.g. 'https://your-app.up.railway.app/qr/complete'. Leave empty to skip.
+  var AUTO_START_CAMERA = true;
+
+  var tg = window.Telegram && Telegram.WebApp;
+  if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('#0b1220'); tg.setBackgroundColor('#0b1220'); } catch (e) {} }
+  var params = new URLSearchParams(location.search);
+
+  var $ = function (id) { return document.getElementById(id); };
+  var camEl = $('cam'), video = $('video'), statusEl = $('status'), liveBtn = $('liveBtn'), liveLabel = $('liveLabel');
+  var modal = $('modal'), card = $('card');
+  var reader = null, live = false, handled = false, found = '';
+
+  // ---- Rotating instructions (English, Amharic, Afaan Oromoo) ----
+  var msgs = [
+    'Point the camera at the QR code on the back of your card',
+    'ካሜራዎን በካርድዎ ጀርባ ወዳለው QR ኮድ ያዙሩ',
+    'Kaameraa gara QR code duuba kaardii keessanii qabaa'
+  ];
+  var mi = 0, subEl = $('sub');
+  subEl.textContent = msgs[0];
+  setInterval(function () {
+    if (handled) return;
+    subEl.classList.add('fade');
+    setTimeout(function () { mi = (mi + 1) % msgs.length; subEl.textContent = msgs[mi]; subEl.classList.remove('fade'); }, 300);
+  }, 6000);
+
+  function setStatus(t, type) {
+    if (!t) { statusEl.className = 'status'; return; }
+    statusEl.textContent = t; statusEl.className = 'status show ' + (type || 'info');
+  }
+
+  // ---- 16-digit extraction (text, raw bytes, grouped, legacy :A: format) ----
+  function fromText(t) {
+    if (!t) return '';
+    var m = t.match(/:A:(\d{16})/); if (m) return m[1];
+    m = t.match(/(?:^|[^\d])(\d{16})(?:[^\d]|$)/); if (m) return m[1];
+    m = t.match(/(?:^|[^\d])(\d{4})[\s\-.]+(\d{4})[\s\-.]+(\d{4})[\s\-.]+(\d{4})(?:[^\d]|$)/);
+    if (m) return m[1] + m[2] + m[3] + m[4];
+    return '';
+  }
+  function fromBytes(bytes) {
+    var run = '';
+    for (var i = 0; i < bytes.length; i++) {
+      var b = bytes[i] & 255;
+      if (b >= 48 && b <= 57) { run += String.fromCharCode(b); if (run.length === 16) return run; }
+      else run = '';
+    }
+    return '';
+  }
+  function segmentsOf(result) {
+    try {
+      var meta = result.getResultMetadata && result.getResultMetadata();
+      if (!meta) return null;
+      var segs = typeof meta.get === 'function' ? (meta.get(2) || meta.get(3) || meta.get('BYTE_SEGMENTS')) : null;
+      if (!segs || !segs.length) return null;
+      var all = [];
+      segs.forEach(function (s) { for (var i = 0; i < s.length; i++) all.push(s[i]); });
+      return all;
+    } catch (e) { return null; }
+  }
+  function fanFrom(text, bytes) { return fromText(text) || (bytes && fromBytes(bytes)) || ''; }
+
+  // ---- Result ----
+  function onResult(text, bytes) {
+    if (handled) return;
+    handled = true;
+    stopLive();
+    found = fanFrom(text, bytes);
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(found ? 'success' : 'error');
+
+    card.classList.toggle('fail', !found);
+    $('tick').textContent = found ? '✓' : '!';
+    $('mTitle').textContent = found ? 'QR scanned' : 'No 16-digit number';
+    $('mNum').textContent = found ? found.replace(/(\d{4})(?=\d)/g, '$1 ') : '—';
+    $('mDesc').textContent = found ? 'The 16-digit number was found in this QR code.' : 'This QR code was read, but it has no 16-digit number. Try again with the card’s back QR.';
+    $('copyBtn').style.display = found ? '' : 'none';
+    $('sendBtn').style.display = found ? '' : 'none';
+    modal.classList.add('show');
+
+    if (found && API_URL) {
+      try {
+        fetch(API_URL, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+          body: JSON.stringify({
+            fan: found, text: text || '',
+            token: params.get('token') || '',
+            user_id: params.get('uid') || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? String(tg.initDataUnsafe.user.id) : '')
+          })
+        }).catch(function () {});
+      } catch (e) {}
+    }
+  }
+
+  $('copyBtn').onclick = function () {
+    (navigator.clipboard ? navigator.clipboard.writeText(found) : Promise.reject())
+      .then(function () { $('copyBtn').textContent = 'Copied'; })
+      .catch(function () { setStatus('Copy failed. Select the number and copy it.', 'error'); });
+  };
+  $('sendBtn').onclick = function () {
+    if (tg && tg.sendData) tg.sendData(JSON.stringify({ type: 'qr', fan: found }));
+    else setStatus('Open this app from your bot to send the number.', 'error');
+  };
+  $('againBtn').onclick = function () {
+    modal.classList.remove('show'); $('copyBtn').textContent = 'Copy';
+    handled = false; found = ''; setStatus('');
+    startLive();
+  };
+
+  // ---- 1) App scanner (ZXing live camera) ----
+  function makeReader() {
+    if (reader || !window.ZXing) return reader;
+    var hints = new Map();
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.QR_CODE]);
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    reader = new ZXing.BrowserMultiFormatReader(hints, 300);
+    return reader;
+  }
+
+  function startLive() {
+    if (live) return;
+    if (!makeReader()) { setStatus('Scanner library did not load. Check your connection or use another option.', 'error'); return; }
+    live = true;
+    camEl.classList.remove('idle');
+    liveBtn.classList.add('on'); liveLabel.textContent = 'Stop camera';
+    setStatus('Starting camera…');
+
+    reader.decodeFromConstraints(
+      { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+      video,
+      function (result) { if (result) onResult(result.getText(), segmentsOf(result)); }
+    ).then(function () {
+      setStatus('');
+    }).catch(function () {
+      stopLive();
+      setStatus('Camera blocked. Allow camera for Telegram, or use the Telegram scanner or Upload image.', 'error');
+    });
+  }
+
+  function stopLive() {
+    live = false;
+    try { if (reader) reader.reset(); } catch (e) {}
+    camEl.classList.add('idle');
+    liveBtn.classList.remove('on'); liveLabel.textContent = 'App scanner';
+  }
+
+  liveBtn.onclick = function () { if (live) stopLive(); else { handled = false; startLive(); } };
+
+  // ---- 2) Telegram native scanner ----
+  $('tgBtn').onclick = function () {
+    stopLive();
+    if (tg && typeof tg.showScanQrPopup === 'function') {
+      tg.showScanQrPopup({ text: 'Scan the QR code' }, function (data) {
+        if (!data) return false;
+        onResult(data, null);
+        return true;
+      });
+    } else {
+      setStatus('The Telegram scanner needs Telegram 6.4 or newer. Use App scanner or Upload image.', 'error');
+    }
+  };
+
+  // ---- 3) Upload image ----
+  $('upBtn').onclick = function () { stopLive(); $('file').click(); };
+  $('file').onchange = function (e) {
+    var f = e.target.files && e.target.files[0];
+    if (!f) return;
+    setStatus('Reading image…');
+    var url = URL.createObjectURL(f);
+    decodeImage(url).then(function (r) {
+      URL.revokeObjectURL(url);
+      if (r) { setStatus(''); handled = false; onResult(r.text, r.bytes); }
+      else setStatus('No QR code found in this image. Use a sharp, high-resolution picture.', 'error');
+    });
+    $('file').value = '';
+  };
+
+  function decodeImage(url) {
+    var r = makeReader();
+    var first = r ? r.decodeFromImageUrl(url).then(function (res) {
+      return { text: res.getText(), bytes: segmentsOf(res) };
+    }).catch(function () { return null; }) : Promise.resolve(null);
+
+    return first.then(function (hit) {
+      if (hit) return hit;
+      return new Promise(function (resolve) {
+        var img = new Image();
+        img.onload = function () {
+          var scales = [1, 0.6, 0.35];
+          for (var i = 0; i < scales.length; i++) {
+            var w = Math.round(img.naturalWidth * scales[i]), h = Math.round(img.naturalHeight * scales[i]);
+            var k = Math.min(1, 2200 / Math.max(w, h)); w = Math.round(w * k); h = Math.round(h * k);
+            var c = document.createElement('canvas'); c.width = w; c.height = h;
+            var ctx = c.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(img, 0, 0, w, h);
+            var d = ctx.getImageData(0, 0, w, h);
+            var q = window.jsQR && jsQR(d.data, w, h, { inversionAttempts: 'attemptBoth' });
+            if (q) {
+              resolve({ text: q.data, bytes: q.binaryData || null });
+              return;
+            }
+          }
+          resolve(null);
+        };
+        img.onerror = function () { resolve(null); };
+        img.src = url;
+      });
+    });
+  }
+
+  // ---- Start ----
+  window.addEventListener('load', function () {
+    if (AUTO_START_CAMERA) startLive(); else stopLive();
+  });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) stopLive(); });
+})();
+</script>
+</body>
+</html>
