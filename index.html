@@ -56,18 +56,6 @@
   nav button.on { background: var(--primary); }
   nav svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   button:focus-visible { outline: 3px solid var(--scan); outline-offset: 2px; }
-
-  .modal { position: fixed; inset: 0; background: rgba(5,9,16,.92); display: none; align-items: center; justify-content: center; padding: 24px; z-index: 10; }
-  .modal.show { display: flex; }
-  .card { width: 100%; max-width: 330px; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 26px 22px; text-align: center; display: flex; flex-direction: column; gap: 14px; align-items: center; }
-  .card .tick { width: 54px; height: 54px; border-radius: 50%; background: rgba(52,211,153,.18); color: var(--ok); font-size: 28px; display: flex; align-items: center; justify-content: center; }
-  .card.fail .tick { background: rgba(248,113,113,.18); color: var(--err); }
-  .card h2 { font-size: 19px; }
-  .num { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 20px; letter-spacing: .06em; color: var(--scan); background: var(--bg); border: 1px dashed var(--line); border-radius: 12px; padding: 10px 14px; word-break: break-all; user-select: text; -webkit-user-select: text; }
-  .card p { font-size: 13px; color: var(--muted); line-height: 1.4; }
-  .row { display: flex; gap: 8px; width: 100%; }
-  .row button { flex: 1; padding: 12px 8px; border: 0; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; background: var(--bg); color: var(--text); }
-  .row button.main { background: var(--primary); }
   input[type=file] { display: none; }
 </style>
 </head>
@@ -103,34 +91,14 @@
 </nav>
 <input type="file" id="file" accept="image/*">
 
-<div class="modal" id="modal">
-  <div class="card" id="card">
-    <div class="tick" id="tick">✓</div>
-    <h2 id="mTitle">QR scanned</h2>
-    <div class="num" id="mNum"></div>
-    <p id="mDesc"></p>
-    <div class="row">
-      <button id="copyBtn">Copy</button>
-      <button id="sendBtn" class="main">Send to Telegram</button>
-    </div>
-    <div class="row"><button id="againBtn">Scan again</button></div>
-  </div>
-</div>
-
 <script>
 (function () {
-  var API_URL = '';
-  var AUTO_START_CAMERA = true;
-  var BOT_USERNAME = 'newfaydamukerabot';
-
   var tg = window.Telegram && Telegram.WebApp;
   if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('#0b1220'); tg.setBackgroundColor('#0b1220'); } catch (e) {} }
-  var params = new URLSearchParams(location.search);
 
   var $ = function (id) { return document.getElementById(id); };
   var camEl = $('cam'), video = $('video'), statusEl = $('status'), liveBtn = $('liveBtn'), liveLabel = $('liveLabel');
-  var modal = $('modal'), card = $('card');
-  var reader = null, live = false, handled = false, found = '';
+  var reader = null, live = false, handled = false;
   var stream = null, scanTimer = null, scanCanvas = null, detector = null;
 
   var msgs = [
@@ -183,37 +151,27 @@
 
   function onResult(text, bytes) {
     if (handled) return;
+    var found = fanFrom(text, bytes);
+    if (!found) {
+      setStatus('No 16-digit FAN found. Keep scanning the card QR.', 'error');
+      return;
+    }
+
     handled = true;
     stopLive();
-    found = fanFrom(text, bytes);
-    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(found ? 'success' : 'error');
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
 
-    card.classList.toggle('fail', !found);
-    $('tick').textContent = found ? '✓' : '!';
-    $('mTitle').textContent = found ? 'QR scanned' : 'No 16-digit number';
-    $('mNum').textContent = found ? found.replace(/(\d{4})(?=\d)/g, '$1 ') : '—';
-    $('mDesc').textContent = found ? 'The 16-digit number was found. Tap Send to Telegram to continue in the bot.' : 'This QR code was read, but it has no 16-digit number. Try again with the card’s back QR.';
-    $('copyBtn').style.display = found ? '' : 'none';
-    $('sendBtn').style.display = found ? '' : 'none';
-    modal.classList.add('show');
+    if (tg && typeof tg.sendData === 'function') {
+      var payload = JSON.stringify({
+        fan: found,
+        qr_payload: text
+      });
+      tg.sendData(payload);
+      tg.close();
+    } else {
+      setStatus('Scanned FAN: ' + found, 'info');
+    }
   }
-
-  $('copyBtn').onclick = function () {
-    (navigator.clipboard ? navigator.clipboard.writeText(found) : Promise.reject())
-      .then(function () { $('copyBtn').textContent = 'Copied'; })
-      .catch(function () { setStatus('Copy failed. Select the number and copy it.', 'error'); });
-  };
-  $('sendBtn').onclick = function () {
-    if (!found) return;
-    var link = 'https://t.me/' + BOT_USERNAME + '?start=' + found;
-    if (tg && typeof tg.openTelegramLink === 'function') tg.openTelegramLink(link);
-    else window.location.href = link;
-  };
-  $('againBtn').onclick = function () {
-    modal.classList.remove('show'); $('copyBtn').textContent = 'Copy';
-    handled = false; found = ''; setStatus('');
-    startLive();
-  };
 
   function makeReader() {
     if (reader || !window.ZXing) return reader;
@@ -224,7 +182,6 @@
     return reader;
   }
 
-  // ---------- Live camera: ZXing first (works on laptop), direct getUserMedia as fallback (works on phone) ----------
   function openStream(tries, i) {
     return navigator.mediaDevices.getUserMedia(tries[i]).catch(function (err) {
       var n = err && err.name;
@@ -237,7 +194,7 @@
     if (!live) return;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       stopLive();
-      setStatus('Camera is not available in this view. Use the Telegram scanner or Upload image.', 'error');
+      setStatus('Camera is not available in this view. Use Telegram scanner or Upload image.', 'error');
       return;
     }
 
@@ -261,10 +218,8 @@
       stopLive();
       var n = (err && err.name) || 'Error';
       var msg = (n === 'NotAllowedError' || n === 'SecurityError')
-        ? 'Camera permission denied. Allow camera for Telegram in phone settings, or use the Telegram scanner or Upload image.'
-        : (n === 'NotFoundError' || n === 'OverconstrainedError')
-          ? 'No camera found. Use the Telegram scanner or Upload image.'
-          : 'Camera could not start (' + n + '). Use the Telegram scanner or Upload image.';
+        ? 'Camera permission denied. Allow camera in settings.'
+        : 'Camera could not start (' + n + '). Use Telegram scanner or Upload image.';
       setStatus(msg, 'error');
     });
   }
@@ -343,7 +298,7 @@
         return true;
       });
     } else {
-      setStatus('The Telegram scanner needs Telegram 6.4 or newer. Use App scanner or Upload image.', 'error');
+      setStatus('Telegram scanner needs Telegram 6.4+. Use App scanner or Upload image.', 'error');
     }
   };
 
@@ -356,7 +311,7 @@
     decodeImage(url).then(function (r) {
       URL.revokeObjectURL(url);
       if (r) { setStatus(''); handled = false; onResult(r.text, r.bytes); }
-      else setStatus('No QR code found in this image. Use a sharp, high-resolution picture.', 'error');
+      else setStatus('No QR code found in this image.', 'error');
     });
     $('file').value = '';
   };
@@ -395,7 +350,7 @@
   }
 
   window.addEventListener('load', function () {
-    if (AUTO_START_CAMERA) startLive(); else stopLive();
+    startLive();
   });
   document.addEventListener('visibilitychange', function () { if (document.hidden) stopLive(); });
 })();
