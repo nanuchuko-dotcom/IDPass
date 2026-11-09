@@ -2,152 +2,199 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Fayda QR Scanner</title>
-<script async src="https://telegram.org/js/telegram-web-app.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>QR Payload Scanner</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
 <style>
-  :root {
-    --bg: #0b1220; --surface: #141d30; --line: #22304a;
-    --primary: #2f6df6; --text: #f4f7fb; --muted: #93a1b8; --ok: #34d399; --err: #f87171; --scan: #5cc8ff;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-  html, body { height: 100%; width: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; display: flex; flex-direction: column; }
-  header { padding: 16px; text-align: center; }
-  h1 { font-size: 18px; font-weight: 700; }
-  .sub { margin-top: 4px; font-size: 13px; color: var(--muted); }
-  
-  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px; gap: 16px; }
-  
-  .cam { position: relative; width: min(300px, 85vw); aspect-ratio: 1; border-radius: 20px; overflow: hidden; background: #000; box-shadow: 0 0 0 1px var(--line); }
-  .cam video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  
-  .reticle { position: absolute; inset: 15%; pointer-events: none; z-index: 3; }
-  .reticle i { position: absolute; width: 24px; height: 24px; border: 4px solid var(--scan); }
-  .reticle i:nth-child(1) { top: 0; left: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 8px; }
-  .reticle i:nth-child(2) { top: 0; right: 0; border-left: 0; border-bottom: 0; border-top-right-radius: 8px; }
-  .reticle i:nth-child(3) { bottom: 0; left: 0; border-right: 0; border-top: 0; border-bottom-left-radius: 8px; }
-  .reticle i:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 8px; }
-  .reticle b { position: absolute; left: 4%; right: 4%; height: 3px; background: var(--scan); box-shadow: 0 0 10px var(--scan); animation: sweep 2s ease-in-out infinite alternate; }
-  @keyframes sweep { from { top: 8%; } to { top: 90%; } }
-
-  .status { width: 100%; max-width: 320px; padding: 10px; border-radius: 10px; font-size: 13px; text-align: center; display: none; }
-  .status.show { display: block; }
-  .status.info { background: rgba(47,109,246,0.15); color: #a9c4ff; }
-  .status.error { background: rgba(248,113,113,0.15); color: #fecaca; }
-  .status.success { background: rgba(52,211,153,0.15); color: #34d399; }
-
-  nav { padding: 16px; display: flex; gap: 10px; }
-  button { flex: 1; height: 50px; border: 0; border-radius: 12px; background: var(--primary); color: #fff; font-weight: 600; font-size: 14px; cursor: pointer; }
+:root{--bg:#f5f6f4;--card:#fff;--ink:#17201c;--mute:#66726b;--line:#d9dfdb;--acc:#0f7a5c;--acc-ink:#fff;--err:#b3261e;--code:#eef1ee}
+@media (prefers-color-scheme:dark){:root{--bg:#121714;--card:#1b231f;--ink:#e8eee9;--mute:#98a59d;--line:#2d3832;--acc:#3ecf9f;--acc-ink:#07261b;--err:#ff8a80;--code:#141a17}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:640px;margin:0 auto;padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
+h1{font-size:1.35rem;margin:8px 0 4px;letter-spacing:-.01em}
+p.sub{margin:0 0 16px;color:var(--mute);font-size:.92rem}
+.opts{display:grid;gap:10px}
+button,.btn{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:12px 14px;text-align:left;cursor:pointer;display:block;width:100%}
+button:focus-visible,.btn:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.opt b{display:block}.opt span{color:var(--mute);font-size:.85rem}
+.opt:active{border-color:var(--acc)}
+#cam{display:none;margin-top:14px;position:relative;border-radius:12px;overflow:hidden;background:#000}
+#cam video{width:100%;display:block;max-height:60vh;object-fit:cover}
+#cam button{position:absolute;right:8px;top:8px;width:auto;padding:6px 12px}
+#status{margin:14px 0 0;color:var(--mute);font-size:.9rem;min-height:1.4em}
+#status.err{color:var(--err)}
+#out{display:none;margin-top:18px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.tabs{display:flex;gap:6px;margin:10px 0}
+.tabs button{width:auto;padding:6px 12px;border-radius:999px;font-size:.85rem}
+.tabs button[aria-pressed=true]{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
+pre{margin:0;background:var(--code);border-radius:8px;padding:12px;max-height:46vh;overflow:auto;white-space:pre-wrap;word-break:break-all;font:.8rem/1.45 ui-monospace,Menlo,Consolas,monospace}
+.meta{color:var(--mute);font-size:.82rem}
+.row{display:flex;gap:8px;margin-top:10px}
+.row button{text-align:center}
+.primary{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
 </style>
 </head>
 <body>
-
-<header>
-  <h1>Fayda QR Scanner</h1>
-  <p class="sub">Align card QR code inside the frame</p>
-</header>
-
 <main>
-  <div class="cam">
-    <video id="video" playsinline webkit-playsinline muted autoplay></video>
-    <div class="reticle"><i></i><i></i><i></i><i></i><b></b></div>
+  <h1>Scan a QR code</h1>
+  <p class="sub">Pick how you want to scan. The payload shows here, no other app needed.</p>
+
+  <div class="opts">
+    <button class="opt" id="bMini"><b>Mini App scanner</b><span>Opens the camera inside this page</span></button>
+    <button class="opt" id="bNative"><b>Telegram scanner</b><span>Uses Telegram's built-in QR popup</span></button>
+    <button class="opt" id="bUpload"><b>Upload image</b><span>Choose a screenshot or photo of a QR code</span></button>
   </div>
-  <div class="status" id="status"></div>
+  <input type="file" id="file" accept="image/*" hidden>
+
+  <div id="cam"><video id="vid" playsinline muted></video><button id="bStop">Stop</button></div>
+  <p id="status" role="status" aria-live="polite"></p>
+
+  <section id="out" aria-label="Scan result">
+    <div class="meta" id="meta"></div>
+    <div class="tabs" role="group" aria-label="Payload format">
+      <button data-f="text" aria-pressed="true">Text</button>
+      <button data-f="hex" aria-pressed="false">Hex</button>
+      <button data-f="b64" aria-pressed="false">Base64</button>
+    </div>
+    <pre id="payload"></pre>
+    <div class="row">
+      <button class="primary" id="bCopy">Copy payload</button>
+      <button id="bClear">Clear</button>
+    </div>
+  </section>
 </main>
 
-<nav>
-  <button id="captureBtn" type="button">Capture & Scan</button>
-</nav>
-
 <script>
-(function () {
-  let tg = window.Telegram && Telegram.WebApp ? Telegram.WebApp : null;
-  if (tg) {
-    try { tg.ready(); tg.expand(); } catch (e) {}
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { try { tg.ready(); tg.expand(); } catch(e){} }
+
+const $ = id => document.getElementById(id);
+const status = (t, err) => { const s=$('status'); s.textContent=t||''; s.className=err?'err':''; };
+
+let result = null, fmt = 'text', stream = null, rafId = 0;
+
+function bytesOf(r){ // r: {text, bytes}
+  return r.bytes && r.bytes.length ? r.bytes : new TextEncoder().encode(r.text || '');
+}
+function show(r, source){
+  result = r;
+  const b = bytesOf(r);
+  $('meta').textContent = source + ' · ' + b.length + ' bytes';
+  $('out').style.display = 'block';
+  render();
+  $('out').scrollIntoView({behavior:'smooth', block:'nearest'});
+  if (tg && tg.HapticFeedback) try{ tg.HapticFeedback.notificationOccurred('success'); }catch(e){}
+}
+function render(){
+  if (!result) return;
+  const b = bytesOf(result);
+  let t;
+  if (fmt==='hex') t = Array.from(b, x=>x.toString(16).padStart(2,'0')).join(' ');
+  else if (fmt==='b64') { let s=''; b.forEach(x=>s+=String.fromCharCode(x)); t = btoa(s); }
+  else t = result.text;
+  $('payload').textContent = t;
+  document.querySelectorAll('.tabs button').forEach(x=>x.setAttribute('aria-pressed', x.dataset.f===fmt));
+}
+document.querySelectorAll('.tabs button').forEach(x=>x.onclick=()=>{fmt=x.dataset.f;render();});
+$('bCopy').onclick = async () => {
+  try { await navigator.clipboard.writeText($('payload').textContent); status('Copied.'); }
+  catch(e){
+    const r=document.createRange(); r.selectNodeContents($('payload'));
+    const s=getSelection(); s.removeAllRanges(); s.addRange(r); status('Select and copy the text.');
   }
+};
+$('bClear').onclick = () => { result=null; $('out').style.display='none'; status(''); };
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const token = urlParams.get('token') || '';
-  const userId = urlParams.get('uid') || urlParams.get('user_id') || '';
-
-  const video = document.getElementById('video');
-  const statusEl = document.getElementById('status');
-  const captureBtn = document.getElementById('captureBtn');
-  let scanning = false;
-  let scanInterval = null;
-
-  function setStatus(msg, type = 'info') {
-    statusEl.textContent = msg;
-    statusEl.className = `status show ${type}`;
-  }
-
-  navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-    audio: false
-  }).then(stream => {
-    video.srcObject = stream;
-    video.play();
-    setStatus('Camera active. Scanning automatically...', 'info');
-    startAutoScan();
-  }).catch(err => {
-    setStatus('Camera access blocked or unavailable.', 'error');
-  });
-
-  function sendFrameToServer() {
-    if (scanning) return;
-    if (!video.videoWidth || !video.videoHeight) return;
-
-    scanning = true;
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    const imageB64 = canvas.toDataURL('image/jpeg', 0.92);
-
-    fetch('https://tp-pro.up.railway.app/miniapp/qr/scan', {
-      method: 'POST',
-      headers: {
-        'accept': '*/*',
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        image_b64: imageB64,
-        token: token,
-        user_id: userId
-      })
-    })
-    .then(res => res.json())
-    .then(data => {
-      if (data.ok) {
-        setStatus('QR Code detected successfully!', 'success');
-        if (scanInterval) clearInterval(scanInterval);
-        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-        setTimeout(() => {
-          if (tg && typeof tg.close === 'function') tg.close();
-        }, 1500);
-      } else {
-        scanning = false;
-      }
-    })
-    .catch(err => {
-      scanning = false;
-    });
-  }
-
-  function startAutoScan() {
-    scanInterval = setInterval(sendFrameSaver, 600);
-  }
-
-  function sendFrameSaver() {
-    if (!scanning) sendFrameToServer();
-  }
-
-  captureBtn.onclick = function() {
-    sendFrameToServer();
+/* 1. Mini App scanner: camera inside the page */
+async function startCam(){
+  stopCam();
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}}});
+  }catch(e){ status('Camera blocked. Allow camera access, or use another option.', true); return; }
+  const v=$('vid'); v.srcObject=stream; await v.play();
+  $('cam').style.display='block'; status('Point the camera at the QR code.');
+  const c=document.createElement('canvas'), x=c.getContext('2d',{willReadFrequently:true});
+  const det = ('BarcodeDetector' in window) ? new BarcodeDetector({formats:['qr_code']}) : null;
+  let busy=false;
+  const tick = async () => {
+    if (!stream) return;
+    if (!busy && v.videoWidth){
+      busy=true;
+      try{
+        if (det){
+          const r = await det.detect(v);
+          if (r.length){ show({text:r[0].rawValue}, 'Mini App scanner'); stopCam(); return; }
+        }
+        c.width=v.videoWidth; c.height=v.videoHeight; x.drawImage(v,0,0);
+        const d=x.getImageData(0,0,c.width,c.height);
+        const q=jsQR(d.data,d.width,d.height,{inversionAttempts:'attemptBoth'});
+        if (q){ show(fromJsQR(q), 'Mini App scanner'); stopCam(); return; }
+      }catch(e){}
+      busy=false;
+    }
+    rafId=requestAnimationFrame(tick);
   };
-})();
+  tick();
+}
+function stopCam(){
+  cancelAnimationFrame(rafId);
+  if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  $('cam').style.display='none';
+}
+function fromJsQR(q){ return {text:q.data, bytes:q.binaryData ? Uint8Array.from(q.binaryData) : null}; }
+$('bMini').onclick = startCam;
+$('bStop').onclick = () => { stopCam(); status(''); };
+
+/* 2. Telegram native scanner */
+$('bNative').onclick = () => {
+  stopCam();
+  if (!tg || !tg.showScanQrPopup || !tg.isVersionAtLeast || !tg.isVersionAtLeast('6.4')){
+    status('Telegram scanner needs this page opened as a Telegram Mini App (version 6.4+).', true); return;
+  }
+  tg.showScanQrPopup({text:'Scan a QR code'}, text => {
+    show({text}, 'Telegram scanner');
+    tg.closeScanQrPopup();
+    return true;
+  });
+};
+
+/* 3. Upload image */
+$('bUpload').onclick = () => { stopCam(); $('file').click(); };
+$('file').onchange = async e => {
+  const f = e.target.files[0]; e.target.value=''; if (!f) return;
+  status('Reading image…');
+  try{
+    const bmp = await createImageBitmap(f);
+    const r = await decodeBitmap(bmp);
+    if (r){ status(''); show(r, 'Uploaded image'); }
+    else status('No QR code found. Try a sharper, cropped image with the whole code visible.', true);
+  }catch(err){ status('Could not read that image file.', true); }
+};
+async function decodeBitmap(bmp){
+  const w=bmp.width, h=bmp.height;
+  if ('BarcodeDetector' in window){
+    try{
+      const r = await new BarcodeDetector({formats:['qr_code']}).detect(bmp);
+      if (r.length) return {text:r[0].rawValue};
+    }catch(e){}
+  }
+  // Dense QR codes: try several scales (upscaling helps small modules)
+  for (const s of [1, 2, 3, 0.75, 1.5]){
+    const cw=Math.round(w*s), ch=Math.round(h*s);
+    if (cw>4000 || ch>4000) continue;
+    const c=document.createElement('canvas'); c.width=cw; c.height=ch;
+    const x=c.getContext('2d',{willReadFrequently:true});
+    x.imageSmoothingEnabled=false;
+    x.fillStyle='#fff'; x.fillRect(0,0,cw,ch);
+    x.drawImage(bmp,0,0,cw,ch);
+    const d=x.getImageData(0,0,cw,ch);
+    const q=jsQR(d.data,cw,ch,{inversionAttempts:'attemptBoth'});
+    if (q) return fromJsQR(q);
+    await new Promise(r=>setTimeout(r));
+  }
+  return null;
+}
 </script>
 </body>
 </html>
