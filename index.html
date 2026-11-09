@@ -4,373 +4,154 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Fayda QR Scanner</title>
-<script>
-window.onerror = function (msg, src, line) {
-  var show = function () {
-    var d = document.createElement('div');
-    d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99;background:#7f1d1d;color:#fff;font:12px monospace;padding:8px;';
-    d.textContent = 'JS error: ' + msg + ' (line ' + line + ')';
-    document.body.appendChild(d);
-  };
-  if (document.body) show(); else document.addEventListener('DOMContentLoaded', show);
-};
-</script>
 <script async src="https://telegram.org/js/telegram-web-app.js"></script>
-<script async src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
-<script async src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
 <style>
   :root {
     --bg: #0b1220; --surface: #141d30; --line: #22304a;
     --primary: #2f6df6; --text: #f4f7fb; --muted: #93a1b8; --ok: #34d399; --err: #f87171; --scan: #5cc8ff;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-  html, body { height: 100%; width: 100%; overflow: hidden; }
-  body {
-    background: var(--bg); color: var(--text);
-    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-    display: flex; flex-direction: column;
-    height: 100vh;
-    height: var(--tg-viewport-stable-height, 100vh);
-  }
-  header { padding: 14px 20px 4px; text-align: center; flex: 0 0 auto; }
+  html, body { height: 100%; width: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; display: flex; flex-direction: column; }
+  header { padding: 16px; text-align: center; }
   h1 { font-size: 18px; font-weight: 700; }
-  .sub { margin-top: 4px; min-height: 2.4em; font-size: 13px; line-height: 1.35; color: var(--muted); transition: opacity .3s; }
-  .sub.fade { opacity: 0; }
+  .sub { margin-top: 4px; font-size: 13px; color: var(--muted); }
+  
+  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px; gap: 16px; }
+  
+  .cam { position: relative; width: min(300px, 85vw); aspect-ratio: 1; border-radius: 20px; overflow: hidden; background: #000; box-shadow: 0 0 0 1px var(--line); }
+  .cam video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  
+  .reticle { position: absolute; inset: 15%; pointer-events: none; z-index: 3; }
+  .reticle i { position: absolute; width: 24px; height: 24px; border: 4px solid var(--scan); }
+  .reticle i:nth-child(1) { top: 0; left: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 8px; }
+  .reticle i:nth-child(2) { top: 0; right: 0; border-left: 0; border-bottom: 0; border-top-right-radius: 8px; }
+  .reticle i:nth-child(3) { bottom: 0; left: 0; border-right: 0; border-top: 0; border-bottom-left-radius: 8px; }
+  .reticle i:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 8px; }
+  .reticle b { position: absolute; left: 4%; right: 4%; height: 3px; background: var(--scan); box-shadow: 0 0 10px var(--scan); animation: sweep 2s ease-in-out infinite alternate; }
+  @keyframes sweep { from { top: 8%; } to { top: 90%; } }
 
-  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px 16px; gap: 10px; min-height: 0; overflow: hidden; }
-
-  .cam { position: relative; width: min(300px, 100%, 50vh); aspect-ratio: 1; border-radius: 20px; overflow: hidden; background: #000; box-shadow: 0 0 0 1px var(--line); z-index: 1; flex: 0 0 auto; }
-  .cam video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
-  .cam .off {
-    position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center;
-    padding: 20px; color: var(--muted); font-size: 13px; background: var(--surface); z-index: 2;
-  }
-  .cam.idle .off { display: flex; }
-  .cam.idle video, .cam.idle .reticle { display: none; }
-
-  .reticle { position: absolute; inset: 14%; pointer-events: none; z-index: 3; }
-  .reticle i { position: absolute; width: 24px; height: 24px; border: 0 solid var(--scan); }
-  .reticle i:nth-child(1) { top: 0; left: 0; border-width: 4px 0 0 4px; border-top-left-radius: 10px; }
-  .reticle i:nth-child(2) { top: 0; right: 0; border-width: 4px 4px 0 0; border-top-right-radius: 10px; }
-  .reticle i:nth-child(3) { bottom: 0; left: 0; border-width: 0 0 4px 4px; border-bottom-left-radius: 10px; }
-  .reticle i:nth-child(4) { bottom: 0; right: 0; border-width: 0 4px 4px 0; border-bottom-right-radius: 10px; }
-  .reticle b { position: absolute; left: 4%; right: 4%; height: 3px; border-radius: 2px; background: var(--scan); box-shadow: 0 0 10px var(--scan); animation: sweep 2.2s ease-in-out infinite alternate; }
-  @keyframes sweep { from { top: 6%; } to { top: 92%; } }
-
-  .status { width: 100%; max-width: 320px; padding: 8px 12px; border-radius: 10px; font-size: 12px; text-align: center; display: none; z-index: 4; flex: 0 0 auto; }
+  .status { width: 100%; max-width: 320px; padding: 10px; border-radius: 10px; font-size: 13px; text-align: center; display: none; }
   .status.show { display: block; }
-  .status.info { background: rgba(47,109,246,.15); color: #a9c4ff; }
-  .status.error { background: rgba(248,113,113,.15); color: #fecaca; }
+  .status.info { background: rgba(47,109,246,0.15); color: #a9c4ff; }
+  .status.error { background: rgba(248,113,113,0.15); color: #fecaca; }
+  .status.success { background: rgba(52,211,153,0.15); color: #34d399; }
 
-  nav { flex: 0 0 auto; display: flex; gap: 8px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--line); position: relative; z-index: 100; pointer-events: auto; }
-  nav button {
-    flex: 1; height: 58px; border: 0; border-radius: 12px; background: var(--surface); color: var(--text);
-    font-size: 12px; font-weight: 600; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer;
-    pointer-events: auto; position: relative; z-index: 101;
-  }
-  nav button.on { background: var(--primary); }
-  nav svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-  nav button span { pointer-events: none; }
-  button:focus-visible { outline: 3px solid var(--scan); outline-offset: 2px; }
-
-  input[type=file] { display: none; }
+  nav { padding: 16px; display: flex; gap: 10px; }
+  button { flex: 1; height: 50px; border: 0; border-radius: 12px; background: var(--primary); color: #fff; font-weight: 600; font-size: 14px; cursor: pointer; }
 </style>
 </head>
 <body>
 
 <header>
   <h1>Fayda QR Scanner</h1>
-  <p class="sub" id="sub"></p>
+  <p class="sub">Align card QR code inside the frame</p>
 </header>
 
 <main>
-  <div class="cam idle" id="cam">
+  <div class="cam">
     <video id="video" playsinline webkit-playsinline muted autoplay></video>
     <div class="reticle"><i></i><i></i><i></i><i></i><b></b></div>
-    <div class="off" id="off">Camera is off. Tap App scanner to start.</div>
   </div>
   <div class="status" id="status"></div>
 </main>
 
 <nav>
-  <button id="liveBtn" type="button">
-    <svg viewBox="0 0 24 24"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-    <span id="liveLabel">App scanner</span>
-  </button>
-  <button id="tgBtn" type="button">
-    <svg viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M4 12h16"/></svg>
-    <span>Telegram scanner</span>
-  </button>
-  <button id="upBtn" type="button">
-    <svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
-    <span>Upload image</span>
-  </button>
+  <button id="captureBtn" type="button">Capture & Scan</button>
 </nav>
-<input type="file" id="file" accept="image/*">
 
 <script>
 (function () {
-  var tg = null, tgInit = false;
-  function initTg() {
-    if (!tg && window.Telegram && Telegram.WebApp) tg = Telegram.WebApp;
-    if (tg && !tgInit) {
-      tgInit = true;
-      try { tg.ready(); } catch (e) {}
-      try { tg.expand(); } catch (e) {}
-      try { tg.setHeaderColor('#0b1220'); tg.setBackgroundColor('#0b1220'); } catch (e) {}
-    }
-    return tg;
-  }
-  initTg();
-  window.addEventListener('load', initTg);
-
-  var $ = function (id) { return document.getElementById(id); };
-  var camEl = $('cam'), video = $('video'), statusEl = $('status'), liveBtn = $('liveBtn'), liveLabel = $('liveLabel');
-  var reader = null, live = false, handled = false;
-  var stream = null, scanTimer = null, scanCanvas = document.createElement('canvas'), scanCtx = null, frameN = 0;
-
-  var msgs = [
-    'Point the camera at the QR code on the back of your card',
-    'ካሜራዎን በካርድዎ ጀርባ ወዳለው QR ኮድ ያዙሩ',
-    'Kaameraa gara QR code duuba kaardii keessanii qabaa'
-  ];
-  var mi = 0, subEl = $('sub');
-  subEl.textContent = msgs[0];
-  setInterval(function () {
-    if (handled) return;
-    subEl.classList.add('fade');
-    setTimeout(function () { mi = (mi + 1) % msgs.length; subEl.textContent = msgs[mi]; subEl.classList.remove('fade'); }, 300);
-  }, 6000);
-
-  function setStatus(t, type) {
-    if (!t) { statusEl.className = 'status'; return; }
-    statusEl.textContent = t; statusEl.className = 'status show ' + (type || 'info');
+  let tg = window.Telegram && Telegram.WebApp ? Telegram.WebApp : null;
+  if (tg) {
+    try { tg.ready(); tg.expand(); } catch (e) {}
   }
 
-  function fromText(t) {
-    if (!t) return '';
-    var m = t.match(/:A:(\d{16})/); if (m) return m[1];
-    m = t.match(/(?:^|[^\d])(\d{16})(?:[^\d]|$)/); if (m) return m[1];
-    m = t.match(/(?:^|[^\d])(\d{4})[\s\-.]+(\d{4})[\s\-.]+(\d{4})[\s\-.]+(\d{4})(?:[^\d]|$)/);
-    if (m) return m[1] + m[2] + m[3] + m[4];
-    return '';
-  }
-  function fromBytes(bytes) {
-    var run = '';
-    for (var i = 0; i < bytes.length; i++) {
-      var b = bytes[i] & 255;
-      if (b >= 48 && b <= 57) { run += String.fromCharCode(b); if (run.length === 16) return run; }
-      else run = '';
-    }
-    return '';
-  }
-  function segmentsOf(result) {
-    try {
-      var meta = result.getResultMetadata && result.getResultMetadata();
-      if (!meta) return null;
-      var segs = typeof meta.get === 'function' ? (meta.get(2) || meta.get(3) || meta.get('BYTE_SEGMENTS')) : null;
-      if (!segs || !segs.length) return null;
-      var all = [];
-      segs.forEach(function (s) { for (var i = 0; i < s.length; i++) all.push(s[i]); });
-      return all;
-    } catch (e) { return null; }
-  }
-  function fanFrom(text, bytes) { return fromText(text) || (bytes && fromBytes(bytes)) || ''; }
+  // Extract token and uid from URL query string
+  const urlParams = new URLSearchParams(window.location.search);
+  const token = urlParams.get('token') || '';
+  const userId = urlParams.get('uid') || urlParams.get('user_id') || '';
 
-  // Binary-safe Base64 encoder for raw QR payload bytes
-  function toBase64Payload(text, bytes) {
-    if (bytes && bytes.length > 0) {
-      var u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-      var binary = '';
-      var chunk = 0x8000;
-      for (var i = 0; i < u8.length; i += chunk) {
-        var sub = u8.subarray(i, i + chunk);
-        binary += String.fromCharCode.apply(null, sub);
+  const video = document.getElementById('video');
+  const statusEl = document.getElementById('status');
+  const captureBtn = document.getElementById('captureBtn');
+  let scanning = false;
+  let scanInterval = null;
+
+  function setStatus(msg, type = 'info') {
+    statusEl.textContent = msg;
+    statusEl.className = `status show ${type}`;
+  }
+
+  // Start camera stream
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  }).then(stream => {
+    video.srcObject = stream;
+    video.play();
+    setStatus('Camera active. Scanning automatically...', 'info');
+    startAutoScan();
+  }).catch(err => {
+    setStatus('Camera access blocked or unavailable.', 'error');
+  });
+
+  function sendFrameToServer() {
+    if (scanning) return;
+    if (!video.videoWidth || !video.videoHeight) return;
+
+    scanning = true;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // High quality JPEG base64 to preserve dense QR finder matrix
+    const imageB64 = canvas.toDataURL('image/jpeg', 0.92);
+
+    fetch('https://tp-pro.up.railway.app/miniapp/qr/scan', {
+      method: 'POST',
+      headers: {
+        'accept': '*/*',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        image_b64: imageB64,
+        token: token,
+        user_id: userId
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.ok) {
+        setStatus('QR Code detected successfully!', 'success');
+        if (scanInterval) clearInterval(scanInterval);
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+        setTimeout(() => {
+          if (tg && typeof tg.close === 'function') tg.close();
+        }, 1500);
+      } else {
+        // Keeps trying silently if no QR is detected in the current frame yet
+        scanning = false;
       }
-      return btoa(binary);
-    }
-    return btoa(unescape(encodeURIComponent(text)));
-  }
-
-  function onResult(text, bytes) {
-    if (handled) return;
-    var found = fanFrom(text, bytes);
-    if (!found) {
-      setStatus('No 16-digit FAN found. Keep scanning the card QR.', 'error');
-      return;
-    }
-
-    handled = true;
-    stopLive();
-    initTg();
-    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-
-    if (tg && typeof tg.sendData === 'function') {
-      var b64Payload = toBase64Payload(text, bytes);
-      var payload = JSON.stringify({
-        fan: found,
-        qr_payload_b64: b64Payload,
-        qr_payload: text || found
-      });
-      tg.sendData(payload);
-      if (typeof tg.close === 'function') {
-        tg.close();
-      }
-    } else {
-      setStatus('Scanned FAN: ' + found, 'info');
-    }
-  }
-
-  function makeReader() {
-    if (reader || !window.ZXing) return reader;
-    var hints = new Map();
-    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.QR_CODE]);
-    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-    reader = new ZXing.BrowserMultiFormatReader(hints, 300);
-    return reader;
-  }
-
-  function scanFrame() {
-    if (!live || handled) return;
-    try {
-      if (video.readyState >= 2 && video.videoWidth > 0) {
-        var vw = video.videoWidth, vh = video.videoHeight;
-        var k = Math.min(1, 900 / Math.max(vw, vh));
-        var w = Math.round(vw * k), h = Math.round(vh * k);
-        if (scanCanvas.width !== w || scanCanvas.height !== h) { scanCanvas.width = w; scanCanvas.height = h; scanCtx = null; }
-        if (!scanCtx) scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
-        scanCtx.drawImage(video, 0, 0, w, h);
-        var d = scanCtx.getImageData(0, 0, w, h);
-        var q = window.jsQR && jsQR(d.data, w, h, { inversionAttempts: 'attemptBoth' });
-        if (q) { onResult(q.data, q.binaryData || null); return; }
-        frameN++;
-        if (frameN % 2 === 0 && makeReader()) {
-          try {
-            var res = reader.decodeFromCanvas(scanCanvas);
-            if (res) { onResult(res.getText(), segmentsOf(res)); return; }
-          } catch (e) {}
-        }
-      }
-    } catch (e) {}
-    scanTimer = setTimeout(scanFrame, 120);
-  }
-
-  function startLive() {
-    if (live) return;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setStatus('Camera requires HTTPS. Use Telegram scanner or Upload image.', 'error');
-      return;
-    }
-    live = true;
-    camEl.classList.remove('idle');
-    liveBtn.classList.add('on'); liveLabel.textContent = 'Stop camera';
-    setStatus('Starting camera…');
-
-    navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: false
-    }).then(function (s) {
-      if (!live) { s.getTracks().forEach(function (t) { t.stop(); }); return null; }
-      stream = s;
-      video.setAttribute('playsinline', '');
-      video.setAttribute('webkit-playsinline', '');
-      video.muted = true;
-      video.srcObject = s;
-      return video.play();
-    }).then(function () {
-      if (!live) return;
-      setStatus('');
-      frameN = 0;
-      scanFrame();
-    }).catch(function () {
-      stopLive();
-      setStatus('Camera blocked. Allow camera access or use Telegram scanner / Upload image.', 'error');
+    })
+    .catch(err => {
+      scanning = false;
     });
   }
 
-  function stopLive() {
-    live = false;
-    if (scanTimer) { clearTimeout(scanTimer); scanTimer = null; }
-    try { if (stream) stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
-    stream = null;
-    try { video.pause(); video.srcObject = null; } catch (e) {}
-    camEl.classList.add('idle');
-    liveBtn.classList.remove('on'); liveLabel.textContent = 'App scanner';
+  function startAutoScan() {
+    // Send a frame to backend every 600ms automatically
+    scanInterval = setInterval(sendFrameSaver, 600);
   }
 
-  liveBtn.onclick = function (e) {
-    e.preventDefault();
-    if (live) stopLive(); else { handled = false; startLive(); }
-  };
-
-  $('tgBtn').onclick = function (e) {
-    e.preventDefault();
-    stopLive();
-    initTg();
-    if (tg && typeof tg.showScanQrPopup === 'function') {
-      tg.showScanQrPopup({ text: 'Scan the QR code' }, function (data) {
-        if (!data) return false;
-        onResult(data, null);
-        return true;
-      });
-    } else {
-      setStatus('Telegram scanner requires Telegram 6.4+. Use App scanner or Upload image.', 'error');
-    }
-  };
-
-  $('upBtn').onclick = function (e) {
-    e.preventDefault();
-    stopLive();
-    $('file').click();
-  };
-
-  $('file').onchange = function (e) {
-    var f = e.target.files && e.target.files[0];
-    if (!f) return;
-    setStatus('Reading image…');
-    var url = URL.createObjectURL(f);
-    decodeImage(url).then(function (r) {
-      URL.revokeObjectURL(url);
-      if (r) { setStatus(''); handled = false; onResult(r.text, r.bytes); }
-      else setStatus('No QR code found in this image. Use a sharp, high-resolution picture.', 'error');
-    });
-    $('file').value = '';
-  };
-
-  function decodeImage(url) {
-    var r = makeReader();
-    var first = r ? r.decodeFromImageUrl(url).then(function (res) {
-      return { text: res.getText(), bytes: segmentsOf(res) };
-    }).catch(function () { return null; }) : Promise.resolve(null);
-
-    return first.then(function (hit) {
-      if (hit) return hit;
-      return new Promise(function (resolve) {
-        var img = new Image();
-        img.onload = function () {
-          var scales = [1, 0.6, 0.35];
-          for (var i = 0; i < scales.length; i++) {
-            var w = Math.round(img.naturalWidth * scales[i]), h = Math.round(img.naturalHeight * scales[i]);
-            var k = Math.min(1, 2200 / Math.max(w, h)); w = Math.round(w * k); h = Math.round(h * k);
-            var c = document.createElement('canvas'); c.width = w; c.height = h;
-            var ctx = c.getContext('2d', { willReadFrequently: true });
-            ctx.drawImage(img, 0, 0, w, h);
-            var d = ctx.getImageData(0, 0, w, h);
-            var q = window.jsQR && jsQR(d.data, w, h, { inversionAttempts: 'attemptBoth' });
-            if (q) {
-              resolve({ text: q.data, bytes: q.binaryData || null });
-              return;
-            }
-          }
-          resolve(null);
-        };
-        img.onerror = function () { resolve(null); };
-        img.src = url;
-      });
-    });
+  function sendFrameSaver() {
+    if (!scanning) sendFrameToServer();
   }
 
-  document.addEventListener('visibilitychange', function () { if (document.hidden) stopLive(); });
+  captureBtn.onclick = function() {
+    sendFrameToServer();
+  };
 })();
 </script>
 </body>
