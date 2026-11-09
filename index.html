@@ -80,7 +80,8 @@ function bytesOf(r){ // r: {text, bytes}
 function show(r, source){
   result = r;
   const b = bytesOf(r);
-  $('meta').textContent = source + ' · ' + b.length + ' bytes';
+  $('meta').textContent = source + ' · ' + b.length + ' bytes' +
+    (r.textOnly ? ' · text only, may differ from the exact bytes' : ' · exact bytes');
   $('out').style.display = 'block';
   render();
   $('out').scrollIntoView({behavior:'smooth', block:'nearest'});
@@ -110,7 +111,8 @@ $('bClear').onclick = () => { result=null; $('out').style.display='none'; status
 async function startCam(){
   stopCam();
   try{
-    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}}});
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:3840},height:{ideal:2160}}});
+    try{ await stream.getVideoTracks()[0].applyConstraints({advanced:[{focusMode:'continuous'}]}); }catch(e){}
   }catch(e){ status('Camera blocked. Allow camera access, or use another option.', true); return; }
   const v=$('vid'); v.srcObject=stream; await v.play();
   $('cam').style.display='block'; status('Point the camera at the QR code.');
@@ -122,14 +124,14 @@ async function startCam(){
     if (!busy && v.videoWidth){
       busy=true;
       try{
-        if (det){
-          const r = await det.detect(v);
-          if (r.length){ show({text:r[0].rawValue}, 'Mini App scanner'); stopCam(); return; }
-        }
         c.width=v.videoWidth; c.height=v.videoHeight; x.drawImage(v,0,0);
         const d=x.getImageData(0,0,c.width,c.height);
         const q=jsQR(d.data,d.width,d.height,{inversionAttempts:'attemptBoth'});
         if (q){ show(fromJsQR(q), 'Mini App scanner'); stopCam(); return; }
+        if (det){
+          const r = await det.detect(v);
+          if (r.length){ show({text:r[0].rawValue, textOnly:true}, 'Mini App scanner (text only)'); stopCam(); return; }
+        }
       }catch(e){}
       busy=false;
     }
@@ -142,19 +144,36 @@ function stopCam(){
   if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
   $('cam').style.display='none';
 }
-function fromJsQR(q){ return {text:q.data, bytes:q.binaryData ? Uint8Array.from(q.binaryData) : null}; }
+function fromJsQR(q){
+  const bytes = q.binaryData && q.binaryData.length ? Uint8Array.from(q.binaryData) : null;
+  const text = bytes ? new TextDecoder('utf-8').decode(bytes) : q.data;
+  return {text, bytes};
+}
 $('bMini').onclick = startCam;
 $('bStop').onclick = () => { stopCam(); status(''); };
 
 /* 2. Telegram native scanner */
+let gotQr = false;
+if (tg && tg.onEvent){
+  tg.onEvent('scanQrPopupClosed', () => {
+    if (!gotQr){
+      status('Telegram scanner closed without reading the code. Dense codes often fail here, so switching to the Mini App scanner.', true);
+      setTimeout(startCam, 600);
+    }
+  });
+}
 $('bNative').onclick = () => {
-  stopCam();
+  stopCam(); gotQr = false;
   if (!tg || !tg.showScanQrPopup || !tg.isVersionAtLeast || !tg.isVersionAtLeast('6.4')){
     status('Telegram scanner needs this page opened as a Telegram Mini App (version 6.4+).', true); return;
   }
   tg.showScanQrPopup({text:'Scan a QR code'}, text => {
+    gotQr = true;
+    try { tg.closeScanQrPopup(); } catch(e){}
+    if (!text){ status('Telegram returned an empty result. Try the Mini App scanner or upload an image.', true); return true; }
     show({text}, 'Telegram scanner');
-    tg.closeScanQrPopup();
+    if (text.indexOf('\uFFFD') >= 0)
+      $('meta').textContent += ' · contains binary data that Telegram turned into text, so use Mini App scanner or Upload for exact bytes';
     return true;
   });
 };
@@ -173,13 +192,7 @@ $('file').onchange = async e => {
 };
 async function decodeBitmap(bmp){
   const w=bmp.width, h=bmp.height;
-  if ('BarcodeDetector' in window){
-    try{
-      const r = await new BarcodeDetector({formats:['qr_code']}).detect(bmp);
-      if (r.length) return {text:r[0].rawValue};
-    }catch(e){}
-  }
-  // Dense QR codes: try several scales (upscaling helps small modules)
+  // jsQR first: it returns the exact bytes. Try several scales (upscaling helps dense codes)
   for (const s of [1, 2, 3, 0.75, 1.5]){
     const cw=Math.round(w*s), ch=Math.round(h*s);
     if (cw>4000 || ch>4000) continue;
@@ -192,6 +205,12 @@ async function decodeBitmap(bmp){
     const q=jsQR(d.data,cw,ch,{inversionAttempts:'attemptBoth'});
     if (q) return fromJsQR(q);
     await new Promise(r=>setTimeout(r));
+  }
+  if ('BarcodeDetector' in window){
+    try{
+      const r = await new BarcodeDetector({formats:['qr_code']}).detect(bmp);
+      if (r.length) return {text:r[0].rawValue, textOnly:true};
+    }catch(e){}
   }
   return null;
 }
