@@ -6,6 +6,7 @@
 <title>QR Payload Scanner</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.6/dist/iife/reader/index.js"></script>
 <style>
 :root{--bg:#f5f6f4;--card:#fff;--ink:#17201c;--mute:#66726b;--line:#d9dfdb;--acc:#0f7a5c;--acc-ink:#fff;--err:#b3261e;--code:#eef1ee}
 @media (prefers-color-scheme:dark){:root{--bg:#121714;--card:#1b231f;--ink:#e8eee9;--mute:#98a59d;--line:#2d3832;--acc:#3ecf9f;--acc-ink:#07261b;--err:#ff8a80;--code:#141a17}}
@@ -57,6 +58,7 @@ pre{margin:0;background:var(--code);border-radius:8px;padding:12px;max-height:46
       <button data-f="hex" aria-pressed="false">Hex</button>
       <button data-f="b64" aria-pressed="false">Base64</button>
     </div>
+    <img id="pic" alt="Image found in payload" hidden style="max-width:160px;border-radius:8px;margin:0 0 10px;display:block">
     <pre id="payload"></pre>
     <div class="row">
       <button class="primary" id="bCopy">Copy payload</button>
@@ -83,9 +85,26 @@ function show(r, source){
   $('meta').textContent = source + ' · ' + b.length + ' bytes' +
     (r.textOnly ? ' · text only, may differ from the exact bytes' : ' · exact bytes');
   $('out').style.display = 'block';
+  const kind=sniff(b); if (kind) $('meta').textContent += ' · '+kind;
   render();
   $('out').scrollIntoView({behavior:'smooth', block:'nearest'});
   if (tg && tg.HapticFeedback) try{ tg.HapticFeedback.notificationOccurred('success'); }catch(e){}
+}
+function sniff(b){
+  const pic=$('pic'); pic.hidden=true; pic.removeAttribute('src');
+  if (b[0]===0xd2 && b[1]===0x84) return 'Looks like a signed CBOR (COSE_Sign1) record';
+  if (b.length>16 && b.every(c=>(c>=48&&c<=57)||(c>=65&&c<=90)||(c>=97&&c<=122)||c===45||c===95||c===43||c===47||c===61)){
+    try{
+      let t=String.fromCharCode(...b.slice(0,2000)).replace(/-/g,'+').replace(/_/g,'/'); t+='='.repeat((4-t.length%4)%4);
+      const head=atob(t.slice(0,24));
+      if (head.startsWith('RIFF') && head.slice(8,12)==='WEBP'){
+        let all=''; b.forEach(c=>all+=String.fromCharCode(c)); all=all.replace(/-/g,'+').replace(/_/g,'/'); all+='='.repeat((4-all.length%4)%4);
+        pic.src='data:image/webp;base64,'+all; pic.hidden=false; return 'Base64url-encoded WebP image (shown above)';
+      }
+      return 'Base64url text';
+    }catch(e){}
+  }
+  return '';
 }
 function render(){
   if (!result) return;
@@ -124,10 +143,10 @@ async function startCam(){
     if (!busy && v.videoWidth){
       busy=true;
       try{
-        c.width=v.videoWidth; c.height=v.videoHeight; x.drawImage(v,0,0);
-        const d=x.getImageData(0,0,c.width,c.height);
-        const q=jsQR(d.data,d.width,d.height,{inversionAttempts:'attemptBoth'});
-        if (q){ show(fromJsQR(q), 'Mini App scanner'); stopCam(); return; }
+        const sc=Math.min(1,2400/v.videoWidth);
+        c.width=Math.round(v.videoWidth*sc); c.height=Math.round(v.videoHeight*sc); x.drawImage(v,0,0,c.width,c.height);
+        const q=await decodeFrame(x.getImageData(0,0,c.width,c.height));
+        if (q){ show(q, 'Mini App scanner'); stopCam(); return; }
         if (det){
           const r = await det.detect(v);
           if (r.length){ show({text:r[0].rawValue, textOnly:true}, 'Mini App scanner (text only)'); stopCam(); return; }
@@ -190,21 +209,35 @@ $('file').onchange = async e => {
     else status('No QR code found. Try a sharper, cropped image with the whole code visible.', true);
   }catch(err){ status('Could not read that image file.', true); }
 };
+/* Shared decoder: zxing-wasm first (handles dense/binary QR), jsQR as backup. Both return exact bytes. */
+async function decodeFrame(imgData){
+  try{
+    if (window.ZXingWASM){
+      const r = await ZXingWASM.readBarcodes(imgData, {formats:['QRCode'], tryHarder:true, tryInvert:true, maxNumberOfSymbols:1});
+      if (r.length && r[0].bytes && r[0].bytes.length){
+        const bytes = Uint8Array.from(r[0].bytes);
+        return {text:new TextDecoder('utf-8').decode(bytes), bytes};
+      }
+    }
+  }catch(e){ console.warn('zxing failed', e); }
+  try{
+    const q = jsQR(imgData.data, imgData.width, imgData.height, {inversionAttempts:'attemptBoth'});
+    if (q) return fromJsQR(q);
+  }catch(e){}
+  return null;
+}
 async function decodeBitmap(bmp){
   const w=bmp.width, h=bmp.height;
-  // jsQR first: it returns the exact bytes. Try several scales (upscaling helps dense codes)
-  for (const s of [1, 2, 3, 0.75, 1.5]){
+  for (const s of [1, 2, 0.5, 3, 1.5, 0.75]){
     const cw=Math.round(w*s), ch=Math.round(h*s);
-    if (cw>4000 || ch>4000) continue;
+    if (cw>4000 || ch>4000 || cw<200) continue;
     const c=document.createElement('canvas'); c.width=cw; c.height=ch;
     const x=c.getContext('2d',{willReadFrequently:true});
-    x.imageSmoothingEnabled=false;
+    x.imageSmoothingEnabled = s<1;
     x.fillStyle='#fff'; x.fillRect(0,0,cw,ch);
     x.drawImage(bmp,0,0,cw,ch);
-    const d=x.getImageData(0,0,cw,ch);
-    const q=jsQR(d.data,cw,ch,{inversionAttempts:'attemptBoth'});
-    if (q) return fromJsQR(q);
-    await new Promise(r=>setTimeout(r));
+    const q=await decodeFrame(x.getImageData(0,0,cw,ch));
+    if (q) return q;
   }
   if ('BarcodeDetector' in window){
     try{
