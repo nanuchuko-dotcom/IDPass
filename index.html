@@ -84,6 +84,7 @@ pre{margin:0;background:var(--code);border-radius:8px;padding:12px;max-height:46
     <div class="row">
       <button class="primary" id="bCopy">Copy payload</button>
       <button class="primary" id="bSave" style="display:none">Save PNG</button>
+      <button class="primary" id="bSend" style="display:none"></button>
       <button id="bClear">Clear</button>
     </div>
   </section>
@@ -101,8 +102,20 @@ let result = null, fmt = 'text', stream = null, rafId = 0;
 function bytesOf(r){ // r: {text, bytes}
   return r.bytes && r.bytes.length ? r.bytes : new TextEncoder().encode(r.text || '');
 }
+function extractFan(r){
+  const b = bytesOf(r);
+  let s=''; for (let i=0;i<b.length;i++) s+=String.fromCharCode(b[i]);
+  const m = s.match(/:A:(\d{16})(?!\d)/) || s.match(/(?:^|\D)(\d{16})(?!\d)/);
+  if (!m) return null;
+  let msg = JSON.stringify({fan:m[1], qr_payload_b64:btoa(s)});
+  if (new TextEncoder().encode(msg).length > 4096) msg = JSON.stringify({fan:m[1]}); // sendData limit
+  return {fan:m[1], msg};
+}
 function show(r, source){
   result = r;
+  const f = extractFan(r), sb = $('bSend');
+  if (f){ sb.style.display=''; sb.textContent='Send '+f.fan+' to bot'; sb._msg=f.msg; }
+  else { sb.style.display='none'; sb._msg=null; }
   const b = bytesOf(r);
   $('meta').textContent = source + ' · ' + b.length + ' bytes' +
     (r.textOnly ? ' · text only, may differ from the exact bytes' : ' · exact bytes');
@@ -209,6 +222,11 @@ $('bCopy').onclick = async () => {
     const r=document.createRange(); r.selectNodeContents($('payload'));
     const s=getSelection(); s.removeAllRanges(); s.addRange(r); status('Select and copy the text.');
   }
+};
+$('bSend').onclick = () => {
+  const m = $('bSend')._msg;
+  if (!m || !tg || !tg.sendData){ status('Open this page from the bot\'s Scan QR button to send.', true); return; }
+  try{ tg.sendData(m); }catch(e){ status('Could not send to bot.', true); }
 };
 $('bClear').onclick = () => { result=null; $('out').style.display='none'; status(''); };
 
