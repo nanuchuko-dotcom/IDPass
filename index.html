@@ -133,6 +133,10 @@ const PHONE_CENTER_CROP = 0.8;
 /* PHONE ONLY: the phone's built-in QR detector (BarcodeDetector) can crash Telegram's browser on some phones.
    false = do not use it on phones (safe). Set true only to test. Desktop always uses it when available. */
 const PHONE_USE_BARCODE_DETECTOR = false;
+/* PHONE ONLY: the quick "looks like a QR?" pattern check before decoding.
+   false = every frame goes to the background decoder (smooth, and reads the QR more reliably).
+   true  = decode only when the quick check sees QR-like squares (lighter, but it can miss a dense QR). */
+const PHONE_USE_PATTERN_GATE = false;
 /* ========================================================= */
 
 /* Phone = Android/iPhone browser, or Telegram app on Android/iOS. Phones use the lighter upload method (Plan B);
@@ -350,7 +354,7 @@ async function startCam(){
       let heavy=false;
       try{
         mark('checking frame');
-        if (IS_PHONE){
+        if (IS_PHONE && (PHONE_USE_PATTERN_GATE || !workerOk)){   // gate is skipped while the background decoder is working
           // phone: cheap checks first; the heavy decoders run only when a QR is really in view
           let pass = true;
           if (det && !detBroken){
