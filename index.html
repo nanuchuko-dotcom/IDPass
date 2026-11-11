@@ -141,6 +141,22 @@ const status = (t, err) => { const s=$('status'); s.textContent=t||''; s.classNa
 
 let result = null, fmt = 'text', stream = null, rafId = 0;
 
+/* ===== crash trail: remembers the last step, so after an unexpected close the page can tell you where it happened ===== */
+function mark(step){ try{ localStorage.setItem('qrstep', step); }catch(e){} }
+(function showCrashTrail(){
+  let last = null; try{ last = localStorage.getItem('qrstep'); }catch(e){}
+  if (last && last !== 'idle'){
+    const d = document.createElement('div');
+    d.style.cssText = 'margin:8px;padding:10px;border-radius:10px;background:#fff3cd;color:#664d03;font-size:13px';
+    d.textContent = 'Last time the page ended during: "' + last + '". If you did not close it yourself, tell this to your developer. (tap to hide)';
+    d.onclick = () => d.remove();
+    document.addEventListener('DOMContentLoaded', () => document.body.insertBefore(d, document.body.firstChild));
+    if (document.readyState !== 'loading') document.body.insertBefore(d, document.body.firstChild);
+  }
+  mark('idle');
+})();
+window.addEventListener('pagehide', () => mark('idle'));
+
 function bytesOf(r){ // r: {text, bytes}
   return r.bytes && r.bytes.length ? r.bytes : new TextEncoder().encode(r.text || '');
 }
@@ -154,6 +170,7 @@ function extractFan(r){
   return {fan:m[1], msg};
 }
 function show(r, source){
+  mark('showing result');
   result = r;
   const f = extractFan(r), sb = $('bSend');
   if (f){ sb.style.display=''; sb.textContent='Send '+f.fan+' to bot'; sb._msg=f.msg; }
@@ -295,6 +312,7 @@ function looksLikeQR(d){
 }
 async function startCam(){
   stopCam();
+  mark('opening camera');
   try{
     const vc = {facingMode:'environment',width:{ideal:IS_PHONE?PHONE_CAM_WIDTH:CAM_WIDTH},height:{ideal:IS_PHONE?PHONE_CAM_HEIGHT:CAM_HEIGHT}};
     if (IS_PHONE) vc.frameRate = {ideal:30, max:30};   // phone: steady 30 fps
@@ -314,6 +332,7 @@ async function startCam(){
   }catch(_){} }
   const v=$('vid'); v.srcObject=stream; await v.play();
   $('cam').style.display='block'; status('Point the camera at the QR code.');
+  mark('camera running');
   if (IS_PHONE) getWorker();   // start loading the background decoder now
   const c=document.createElement('canvas'), x=c.getContext('2d',{willReadFrequently:true});
   const g=document.createElement('canvas'), gx=g.getContext('2d',{willReadFrequently:true});
@@ -327,6 +346,7 @@ async function startCam(){
       busy=true;
       let heavy=false;
       try{
+        mark('checking frame');
         if (IS_PHONE){
           // phone: cheap checks first; the heavy decoders run only when a QR is really in view
           let pass = true;
@@ -346,6 +366,7 @@ async function startCam(){
           misses=0;
         }
         heavy=true;
+        mark('decoding frame');
         await new Promise(r => setTimeout(r, 0));   // let the screen repaint before heavy work
         let q;
         if (IS_PHONE){
@@ -388,6 +409,7 @@ async function startCam(){
 }
 function stopCam(){
   clearTimeout(rafId);
+  mark('idle');
   if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
   $('cam').style.display='none';
 }
