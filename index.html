@@ -94,6 +94,28 @@ pre{margin:0;background:var(--code);border-radius:8px;padding:12px;max-height:46
 const tg = window.Telegram && Telegram.WebApp;
 if (tg) { try { tg.ready(); tg.expand(); } catch(e){} }
 
+/* ===================== CAMERA SETTINGS =====================
+   HOW TO CHANGE: edit the 3 numbers below (CAM_WIDTH, CAM_HEIGHT, DECODE_MAX_WIDTH)
+   together, save the file, upload it again to your hosting (GitHub Pages),
+   then close and reopen the mini app.
+
+   NOW (4K):    CAM_WIDTH = 3840;  CAM_HEIGHT = 2160;  DECODE_MAX_WIDTH = 2400;
+   1440p:       CAM_WIDTH = 2560;  CAM_HEIGHT = 1440;  DECODE_MAX_WIDTH = 2000;
+   1080p:       CAM_WIDTH = 1920;  CAM_HEIGHT = 1080;  DECODE_MAX_WIDTH = 1600;
+
+   CAM_WIDTH, CAM_HEIGHT : camera resolution requested from the phone.
+   DECODE_MAX_WIDTH      : frames wider than this are shrunk before reading the QR.
+
+   Higher numbers = reads dense QR from farther away, but heavier on the phone.
+   Lower numbers  = lighter and more stable. If Telegram freezes or closes while
+   scanning, go one step down (4K -> 1440p -> 1080p). If a dense QR stops reading,
+   go one step up.
+   ============================================================ */
+const CAM_WIDTH = 3840;
+const CAM_HEIGHT = 2160;
+const DECODE_MAX_WIDTH = 2400;
+/* ========================================================= */
+
 const $ = id => document.getElementById(id);
 const status = (t, err) => { const s=$('status'); s.textContent=t||''; s.className=err?'err':''; };
 
@@ -234,20 +256,21 @@ $('bClear').onclick = () => { result=null; $('out').style.display='none'; status
 async function startCam(){
   stopCam();
   try{
-    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:3840},height:{ideal:2160}}});
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:CAM_WIDTH},height:{ideal:CAM_HEIGHT}}});
     try{ await stream.getVideoTracks()[0].applyConstraints({advanced:[{focusMode:'continuous'}]}); }catch(e){}
   }catch(e){ status('Camera blocked. Allow camera access, or use another option.', true); return; }
   const v=$('vid'); v.srcObject=stream; await v.play();
   $('cam').style.display='block'; status('Point the camera at the QR code.');
   const c=document.createElement('canvas'), x=c.getContext('2d',{willReadFrequently:true});
   const det = ('BarcodeDetector' in window) ? new BarcodeDetector({formats:['qr_code']}) : null;
-  let busy=false;
+  let busy=false; const t0=Date.now();
   const tick = async () => {
     if (!stream) return;
+    if (Date.now()-t0 > 90000){ stopCam(); status('Camera stopped after 90 seconds. Tap Mini App scanner to continue.'); return; }
     if (!busy && v.videoWidth){
       busy=true;
       try{
-        const sc=Math.min(1,2400/v.videoWidth);
+        const sc=Math.min(1,DECODE_MAX_WIDTH/v.videoWidth);
         c.width=Math.round(v.videoWidth*sc); c.height=Math.round(v.videoHeight*sc); x.drawImage(v,0,0,c.width,c.height);
         const q=await decodeFrame(x.getImageData(0,0,c.width,c.height));
         if (q){ show(q, 'Mini App scanner'); stopCam(); return; }
@@ -258,12 +281,12 @@ async function startCam(){
       }catch(e){}
       busy=false;
     }
-    rafId=requestAnimationFrame(tick);
+    rafId=setTimeout(tick, 250);
   };
   tick();
 }
 function stopCam(){
-  cancelAnimationFrame(rafId);
+  clearTimeout(rafId);
   if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
   $('cam').style.display='none';
 }
@@ -303,16 +326,35 @@ $('bNative').onclick = () => {
 
 /* 3. Upload image */
 $('bUpload').onclick = () => { stopCam(); $('file').click(); };
+async function loadBitmap(f){
+  let bmp;
+  try{ bmp = await createImageBitmap(f); }
+  catch(e){
+    bmp = await new Promise((res, rej) => {
+      const u = URL.createObjectURL(f), im = new Image();
+      im.onload = () => { URL.revokeObjectURL(u); res(im); };
+      im.onerror = () => { URL.revokeObjectURL(u); rej(new Error('image')); };
+      im.src = u;
+    });
+  }
+  const w = bmp.width, h = bmp.height, k = Math.min(1, 2600/Math.max(w,h));
+  if (k >= 1) return bmp;
+  const c = document.createElement('canvas'); c.width = Math.round(w*k); c.height = Math.round(h*k);
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  if (bmp.close) bmp.close();
+  return c;
+}
 $('file').onchange = async e => {
-  const f = e.target.files[0]; e.target.value=''; if (!f) return;
+  const f = e.target.files[0]; if (!f) return;
   status('Reading image…');
   try{
-    const bmp = await createImageBitmap(f);
+    const bmp = await loadBitmap(f);
     const r = await decodeBitmap(bmp);
     if (r){ status(''); show(r, 'Uploaded image'); }
     else if (wasmFailed) status('Dense-QR decoder could not download (network). Check your connection and try again.', true);
     else status('No QR code found. Try a sharper, cropped image with the whole code visible.', true);
   }catch(err){ status('Could not read that image file.', true); }
+  finally{ try{ e.target.value=''; }catch(_){} }
 };
 /* zxing wasm loader: fetch the .wasm ourselves from several hosts (local copy first), then hand it to zxing */
 const WASM_URLS = [
@@ -385,6 +427,8 @@ async function decodeBitmap(bmp){
   }
   return null;
 }
+document.addEventListener('visibilitychange', () => { if (document.hidden) stopCam(); });
+if (tg && tg.initData) setTimeout(startCam, 400);   // opened from the bot's Scan QR button: camera starts automatically
 </script>
 </body>
 </html>
