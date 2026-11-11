@@ -111,9 +111,9 @@ if (tg) { try { tg.ready(); tg.expand(); } catch(e){} }
    scanning, go one step down (4K -> 1440p -> 1080p). If a dense QR stops reading,
    go one step up.
    ============================================================ */
-const CAM_WIDTH = 3840;
-const CAM_HEIGHT = 2160;
-const DECODE_MAX_WIDTH = 2400;
+const CAM_WIDTH = 2560;
+const CAM_HEIGHT = 1440;
+const DECODE_MAX_WIDTH = 2000;
 
 /* UPLOAD IMAGE SETTING (PHONE ONLY - desktop keeps the original method): uploaded photos are shrunk so their longest side is at most this many pixels.
    If the phone shows "Aw, Snap!" when you upload, lower it (1800 -> 1400 -> 1000).
