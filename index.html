@@ -126,6 +126,10 @@ const UPLOAD_MAX_SIDE = 1800;
 const PHONE_CAM_WIDTH = 1920;
 const PHONE_CAM_HEIGHT = 1080;
 const PHONE_DECODE_MAX_WIDTH = 1600;
+/* PHONE ONLY: read only the center part of the camera picture (faster, smoother).
+   0.8 = center 80% of the picture. Use 1 to read the whole picture.
+   If the QR is not read when it fills the whole screen, hold the phone a bit farther or set this to 1. */
+const PHONE_CENTER_CROP = 0.8;
 /* ========================================================= */
 
 /* Phone = Android/iPhone browser, or Telegram app on Android/iOS. Phones use the lighter upload method (Plan B);
@@ -314,7 +318,7 @@ async function startCam(){
   const c=document.createElement('canvas'), x=c.getContext('2d',{willReadFrequently:true});
   const g=document.createElement('canvas'), gx=g.getContext('2d',{willReadFrequently:true});
   const det = ('BarcodeDetector' in window) ? new BarcodeDetector({formats:['qr_code']}) : null;
-  let busy=false, detBroken=false; const t0=Date.now();
+  let busy=false, detBroken=false, misses=0, heavyCount=0, useBmp=(IS_PHONE && typeof OffscreenCanvas!=='undefined' && typeof createImageBitmap==='function'); const t0=Date.now();
   const dc=document.createElement('canvas'), dx=dc.getContext('2d');
   const tick = async () => {
     if (!stream) return;
@@ -338,19 +342,38 @@ async function startCam(){
             gx.drawImage(v,0,0,g.width,g.height);
             pass = looksLikeQR(gx.getImageData(0,0,g.width,g.height));
           }
-          if (!pass){ busy=false; rafId=setTimeout(tick, 350); return; }
+          if (!pass){ misses++; busy=false; rafId=setTimeout(tick, 350 + Math.min(350, misses*50)); return; }   // longer pauses while nothing QR-like is in view
+          misses=0;
         }
         heavy=true;
         await new Promise(r => setTimeout(r, 0));   // let the screen repaint before heavy work
-        const sc=Math.min(1,(IS_PHONE?PHONE_DECODE_MAX_WIDTH:DECODE_MAX_WIDTH)/v.videoWidth);
-        c.width=Math.round(v.videoWidth*sc); c.height=Math.round(v.videoHeight*sc); x.drawImage(v,0,0,c.width,c.height);
         let q;
         if (IS_PHONE){
-          const wr = await workerDecode(x.getImageData(0,0,c.width,c.height));   // decoded in the background thread
-          if (!stream) return;                                                    // Stop was pressed meanwhile
+          let wr = '__fail__';
+          if (useBmp){                                    // best path: crop + resize + pixel read all happen off the main thread
+            try{
+              const crop = (heavyCount++ % 3 === 2) ? 1 : PHONE_CENTER_CROP;   // every 3rd try uses the whole picture
+              const sw=Math.round(v.videoWidth*crop), sh=Math.round(v.videoHeight*crop);
+              const sx=Math.round((v.videoWidth-sw)/2), sy=Math.round((v.videoHeight-sh)/2);
+              const k=Math.min(1, PHONE_DECODE_MAX_WIDTH/sw);
+              const bmp = await createImageBitmap(v, sx, sy, sw, sh, {resizeWidth:Math.round(sw*k), resizeHeight:Math.round(sh*k), resizeQuality:'medium'});
+              wr = await workerDecodeBmp(bmp);
+            }catch(_){ wr = '__fail__'; }
+            if (wr === '__fail__') useBmp = false;        // this phone cannot do it: use the previous method from now on
+          }
+          if (wr === '__fail__'){
+            const sc=Math.min(1,PHONE_DECODE_MAX_WIDTH/v.videoWidth);
+            c.width=Math.round(v.videoWidth*sc); c.height=Math.round(v.videoHeight*sc); x.drawImage(v,0,0,c.width,c.height);
+            wr = await workerDecode(x.getImageData(0,0,c.width,c.height));
+          }
+          if (!stream) return;                            // Stop was pressed meanwhile
           if (wr === '__fail__') q = await decodeFrame(x.getImageData(0,0,c.width,c.height), true);  // worker unavailable: old way
           else q = wr ? fromWorker(wr) : null;
-        } else q = await decodeFrame(x.getImageData(0,0,c.width,c.height), false);
+        } else {
+          const sc=Math.min(1,DECODE_MAX_WIDTH/v.videoWidth);
+          c.width=Math.round(v.videoWidth*sc); c.height=Math.round(v.videoHeight*sc); x.drawImage(v,0,0,c.width,c.height);
+          q = await decodeFrame(x.getImageData(0,0,c.width,c.height), false);
+        }
         if (q){ show(q, 'Mini App scanner'); stopCam(); return; }
         if (det && !detBroken){
           const r = await det.detect(IS_PHONE ? c : v);
@@ -495,23 +518,40 @@ function workerMain(){
     })();
     return ready;
   }
-  self.onmessage = async ev => {
-    const m = ev.data;
-    if (m.type === 'init'){ urls = m.urls; await init(); self.postMessage({type:'ready'}); return; }
-    if (m.type !== 'decode') return;
+  async function decodeBuf(buffer, width, height){
     let q = null;
     try{
       if (await init()){
-        const img = new ImageData(new Uint8ClampedArray(m.buffer), m.width, m.height);
+        const img = new ImageData(new Uint8ClampedArray(buffer), width, height);
         const r = await ZXingWASM.readBarcodes(img, {formats:['QRCode'], tryHarder:true, tryInvert:false, maxNumberOfSymbols:1});
         if (r.length && r[0].bytes && r[0].bytes.length) q = {bytes: Array.from(r[0].bytes), ecc: r[0].eccLevel};
       }
       if (!q && self.jsQR){
-        const j = jsQR(new Uint8ClampedArray(m.buffer), m.width, m.height, {inversionAttempts:'dontInvert'});
+        const j = jsQR(new Uint8ClampedArray(buffer), width, height, {inversionAttempts:'dontInvert'});
         if (j) q = {bytes: Array.from(j.binaryData && j.binaryData.length ? j.binaryData : new TextEncoder().encode(j.data))};
       }
     }catch(e){}
-    self.postMessage({type:'result', id:m.id, q});
+    return q;
+  }
+  self.onmessage = async ev => {
+    const m = ev.data;
+    if (m.type === 'init'){ urls = m.urls; await init(); self.postMessage({type:'ready'}); return; }
+    if (m.type === 'decode'){
+      const q = await decodeBuf(m.buffer, m.width, m.height);
+      self.postMessage({type:'result', id:m.id, q});
+      return;
+    }
+    if (m.type === 'decodeBmp'){          // picture arrives as an ImageBitmap: pixels are read here, not on the main thread
+      let q = null, fail = false;
+      try{
+        const b = m.bmp, oc = new OffscreenCanvas(b.width, b.height), cx = oc.getContext('2d', {willReadFrequently:true});
+        cx.drawImage(b, 0, 0);
+        const d = cx.getImageData(0, 0, b.width, b.height);
+        if (b.close) b.close();
+        q = await decodeBuf(d.data.buffer, b.width, b.height);
+      }catch(e){ fail = true; }
+      self.postMessage({type:'result', id:m.id, q, fail});
+    }
   };
 }
 let worker = null, workerOk = true, workerSeq = 0; const workerPending = new Map();
@@ -520,7 +560,7 @@ function getWorker(){
   try{
     const url = URL.createObjectURL(new Blob(['(' + workerMain.toString() + ')()'], {type:'application/javascript'}));
     worker = new Worker(url);
-    worker.onmessage = ev => { const m = ev.data; if (m.type === 'result'){ const f = workerPending.get(m.id); if (f){ workerPending.delete(m.id); f(m.q || null); } } };
+    worker.onmessage = ev => { const m = ev.data; if (m.type === 'result'){ const f = workerPending.get(m.id); if (f){ workerPending.delete(m.id); f(m.fail ? '__fail__' : (m.q || null)); } } };
     worker.onerror = () => { workerOk = false; worker = null; workerPending.forEach(f => f('__fail__')); workerPending.clear(); };
     worker.postMessage({type:'init', urls: WASM_URLS.map(u => new URL(u, location.href).href)});
   }catch(e){ workerOk = false; worker = null; }
@@ -533,6 +573,15 @@ function workerDecode(imgData){
     const t = setTimeout(() => { workerPending.delete(id); resolve(null); }, 12000);
     workerPending.set(id, r => { clearTimeout(t); resolve(r); });
     w.postMessage({type:'decode', id, width:imgData.width, height:imgData.height, buffer:imgData.data.buffer}, [imgData.data.buffer]);
+  });
+}
+function workerDecodeBmp(bmp){
+  return new Promise(resolve => {
+    const w = getWorker(); if (!w){ try{ bmp.close(); }catch(_){} resolve('__fail__'); return; }
+    const id = ++workerSeq;
+    const t = setTimeout(() => { workerPending.delete(id); resolve(null); }, 12000);
+    workerPending.set(id, r => { clearTimeout(t); resolve(r); });
+    w.postMessage({type:'decodeBmp', id, bmp}, [bmp]);
   });
 }
 function fromWorker(r){
