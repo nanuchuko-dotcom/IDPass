@@ -119,6 +119,13 @@ const DECODE_MAX_WIDTH = 2400;
    If the phone shows "Aw, Snap!" when you upload, lower it (1800 -> 1400 -> 1000).
    If a dense QR in an uploaded photo is not found, raise it (1800 -> 2200). */
 const UPLOAD_MAX_SIDE = 1800;
+
+/* PHONE CAMERA SETTING (PHONE ONLY - desktop keeps CAM_WIDTH/CAM_HEIGHT/DECODE_MAX_WIDTH above).
+   A 4K camera stream is too heavy for many phones inside Telegram (freezes / Telegram closes).
+   To test higher on the phone: 1440p -> 2560, 1440, 2000   4K -> 3840, 2160, 2400 */
+const PHONE_CAM_WIDTH = 1920;
+const PHONE_CAM_HEIGHT = 1080;
+const PHONE_DECODE_MAX_WIDTH = 1600;
 /* ========================================================= */
 
 /* Phone = Android/iPhone browser, or Telegram app on Android/iOS. Phones use the lighter upload method (Plan B);
@@ -285,7 +292,7 @@ function looksLikeQR(d){
 async function startCam(){
   stopCam();
   try{
-    const vc = {facingMode:'environment',width:{ideal:CAM_WIDTH},height:{ideal:CAM_HEIGHT}};
+    const vc = {facingMode:'environment',width:{ideal:IS_PHONE?PHONE_CAM_WIDTH:CAM_WIDTH},height:{ideal:IS_PHONE?PHONE_CAM_HEIGHT:CAM_HEIGHT}};
     if (IS_PHONE) vc.frameRate = {ideal:30, max:30};   // phone: steady 30 fps
     stream = await navigator.mediaDevices.getUserMedia({video:vc});
     try{ await stream.getVideoTracks()[0].applyConstraints({advanced:[{focusMode:'continuous'}]}); }catch(e){}
@@ -295,7 +302,7 @@ async function startCam(){
     if (/ultra|wide|macro|depth/i.test(tr.label || '')){
       const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind==='videoinput' && /back|rear|environment/i.test(d.label) && !/ultra|wide|macro|depth|tele/i.test(d.label));
       if (devs.length){
-        const s2 = await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:devs[0].deviceId}, width:{ideal:CAM_WIDTH}, height:{ideal:CAM_HEIGHT}, frameRate:{ideal:30, max:30}}});
+        const s2 = await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:devs[0].deviceId}, width:{ideal:PHONE_CAM_WIDTH}, height:{ideal:PHONE_CAM_HEIGHT}, frameRate:{ideal:30, max:30}}});
         stream.getTracks().forEach(t => t.stop()); stream = s2;
         try{ await stream.getVideoTracks()[0].applyConstraints({advanced:[{focusMode:'continuous'}]}); }catch(_){}
       }
@@ -306,40 +313,46 @@ async function startCam(){
   const c=document.createElement('canvas'), x=c.getContext('2d',{willReadFrequently:true});
   const g=document.createElement('canvas'), gx=g.getContext('2d',{willReadFrequently:true});
   const det = ('BarcodeDetector' in window) ? new BarcodeDetector({formats:['qr_code']}) : null;
-  let busy=false; const t0=Date.now();
+  let busy=false, detBroken=false; const t0=Date.now();
   const dc=document.createElement('canvas'), dx=dc.getContext('2d');
   const tick = async () => {
     if (!stream) return;
     if (Date.now()-t0 > 90000){ stopCam(); status('Camera stopped after 90 seconds. Tap Mini App scanner to continue.'); return; }
     if (!busy && v.videoWidth){
       busy=true;
+      let heavy=false;
       try{
-        // phone: quick native check first; the heavy decoders below run only when a QR is really in view
-        if (IS_PHONE && det){
-          let seen = true;
-          try{
-            const ds=Math.min(1,960/v.videoWidth); dc.width=Math.round(v.videoWidth*ds); dc.height=Math.round(v.videoHeight*ds); dx.drawImage(v,0,0,dc.width,dc.height);
-            seen = (await det.detect(dc)).length > 0;
-          }catch(_){ seen = true; }
-          if (!seen){ busy=false; rafId=setTimeout(tick, 350); return; }
-        } else if (IS_PHONE){
-          const gs=Math.min(1, 960/v.videoWidth);
-          g.width=Math.round(v.videoWidth*gs); g.height=Math.round(v.videoHeight*gs);
-          gx.drawImage(v,0,0,g.width,g.height);
-          if (!looksLikeQR(gx.getImageData(0,0,g.width,g.height))){ busy=false; rafId=setTimeout(tick, 200); return; }
+        if (IS_PHONE){
+          // phone: cheap checks first; the heavy decoders run only when a QR is really in view
+          let pass = true;
+          if (det && !detBroken){
+            try{
+              const ds=Math.min(1,960/v.videoWidth); dc.width=Math.round(v.videoWidth*ds); dc.height=Math.round(v.videoHeight*ds); dx.drawImage(v,0,0,dc.width,dc.height);
+              pass = (await det.detect(dc)).length > 0;
+            }catch(_){ detBroken = true; }   // detector unavailable on this phone: use the pattern check below
+          }
+          if (!det || detBroken){
+            const gs=Math.min(1, 960/v.videoWidth);
+            g.width=Math.round(v.videoWidth*gs); g.height=Math.round(v.videoHeight*gs);
+            gx.drawImage(v,0,0,g.width,g.height);
+            pass = looksLikeQR(gx.getImageData(0,0,g.width,g.height));
+          }
+          if (!pass){ busy=false; rafId=setTimeout(tick, 350); return; }
         }
-        const sc=Math.min(1,DECODE_MAX_WIDTH/v.videoWidth);
+        heavy=true;
+        await new Promise(r => setTimeout(r, 0));   // let the screen repaint before heavy work
+        const sc=Math.min(1,(IS_PHONE?PHONE_DECODE_MAX_WIDTH:DECODE_MAX_WIDTH)/v.videoWidth);
         c.width=Math.round(v.videoWidth*sc); c.height=Math.round(v.videoHeight*sc); x.drawImage(v,0,0,c.width,c.height);
-        const q=await decodeFrame(x.getImageData(0,0,c.width,c.height));
+        const q=await decodeFrame(x.getImageData(0,0,c.width,c.height), IS_PHONE);
         if (q){ show(q, 'Mini App scanner'); stopCam(); return; }
-        if (det){
-          const r = await det.detect(v);
+        if (det && !detBroken){
+          const r = await det.detect(IS_PHONE ? c : v);
           if (r.length){ show({text:r[0].rawValue, textOnly:true}, 'Mini App scanner (text only)'); stopCam(); return; }
         }
       }catch(e){}
       busy=false;
     }
-    rafId=setTimeout(tick, IS_PHONE ? (det ? 400 : 900) : 250);
+    rafId=setTimeout(tick, IS_PHONE ? 600 : 250);
   };
   tick();
 }
@@ -453,11 +466,11 @@ function initWasm(){
   return wasmReady;
 }
 /* Shared decoder: zxing-wasm first (handles dense/binary QR), jsQR as backup. Both return exact bytes. */
-async function decodeFrame(imgData){
+async function decodeFrame(imgData, light){
   try{
     if (window.ZXingWASM){
       await initWasm();
-      const r = await ZXingWASM.readBarcodes(imgData, {formats:['QRCode'], tryHarder:true, tryInvert:true, maxNumberOfSymbols:1});
+      const r = await ZXingWASM.readBarcodes(imgData, {formats:['QRCode'], tryHarder:true, tryInvert:!light, maxNumberOfSymbols:1});
       if (r.length && r[0].bytes && r[0].bytes.length){
         const bytes = Uint8Array.from(r[0].bytes);
         return {text:new TextDecoder('utf-8').decode(bytes), bytes, ec:normEc(r[0].eccLevel)};
@@ -465,7 +478,7 @@ async function decodeFrame(imgData){
     }
   }catch(e){ console.warn('zxing failed', e); }
   try{
-    const q = jsQR(imgData.data, imgData.width, imgData.height, {inversionAttempts:'attemptBoth'});
+    const q = jsQR(imgData.data, imgData.width, imgData.height, {inversionAttempts: light ? 'dontInvert' : 'attemptBoth'});
     if (q) return fromJsQR(q);
   }catch(e){}
   return null;
