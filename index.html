@@ -130,6 +130,9 @@ const PHONE_DECODE_MAX_WIDTH = 1600;
    0.8 = center 80% of the picture. Use 1 to read the whole picture.
    If the QR is not read when it fills the whole screen, hold the phone a bit farther or set this to 1. */
 const PHONE_CENTER_CROP = 0.8;
+/* PHONE ONLY: the phone's built-in QR detector (BarcodeDetector) can crash Telegram's browser on some phones.
+   false = do not use it on phones (safe). Set true only to test. Desktop always uses it when available. */
+const PHONE_USE_BARCODE_DETECTOR = false;
 /* ========================================================= */
 
 /* Phone = Android/iPhone browser, or Telegram app on Android/iOS. Phones use the lighter upload method (Plan B);
@@ -336,7 +339,7 @@ async function startCam(){
   if (IS_PHONE) getWorker();   // start loading the background decoder now
   const c=document.createElement('canvas'), x=c.getContext('2d',{willReadFrequently:true});
   const g=document.createElement('canvas'), gx=g.getContext('2d',{willReadFrequently:true});
-  const det = ('BarcodeDetector' in window) ? new BarcodeDetector({formats:['qr_code']}) : null;
+  const det = ((IS_PHONE ? PHONE_USE_BARCODE_DETECTOR : true) && 'BarcodeDetector' in window) ? new BarcodeDetector({formats:['qr_code']}) : null;
   let busy=false, detBroken=false, misses=0, heavyCount=0, useBmp=(IS_PHONE && typeof OffscreenCanvas!=='undefined' && typeof createImageBitmap==='function'); const t0=Date.now();
   const dc=document.createElement('canvas'), dx=dc.getContext('2d');
   const tick = async () => {
@@ -644,7 +647,7 @@ async function decodeBitmap(bmp){
     if (IS_PHONE) c.width=c.height=0; // phone: free memory before the next try
     if (q) return q;
   }
-  if ('BarcodeDetector' in window){
+  if ((IS_PHONE ? PHONE_USE_BARCODE_DETECTOR : true) && 'BarcodeDetector' in window){
     try{
       const r = await new BarcodeDetector({formats:['qr_code']}).detect(bmp);
       if (r.length) return {text:r[0].rawValue, textOnly:true};
