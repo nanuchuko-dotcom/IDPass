@@ -310,6 +310,7 @@ async function startCam(){
   }catch(_){} }
   const v=$('vid'); v.srcObject=stream; await v.play();
   $('cam').style.display='block'; status('Point the camera at the QR code.');
+  if (IS_PHONE) getWorker();   // start loading the background decoder now
   const c=document.createElement('canvas'), x=c.getContext('2d',{willReadFrequently:true});
   const g=document.createElement('canvas'), gx=g.getContext('2d',{willReadFrequently:true});
   const det = ('BarcodeDetector' in window) ? new BarcodeDetector({formats:['qr_code']}) : null;
@@ -343,7 +344,13 @@ async function startCam(){
         await new Promise(r => setTimeout(r, 0));   // let the screen repaint before heavy work
         const sc=Math.min(1,(IS_PHONE?PHONE_DECODE_MAX_WIDTH:DECODE_MAX_WIDTH)/v.videoWidth);
         c.width=Math.round(v.videoWidth*sc); c.height=Math.round(v.videoHeight*sc); x.drawImage(v,0,0,c.width,c.height);
-        const q=await decodeFrame(x.getImageData(0,0,c.width,c.height), IS_PHONE);
+        let q;
+        if (IS_PHONE){
+          const wr = await workerDecode(x.getImageData(0,0,c.width,c.height));   // decoded in the background thread
+          if (!stream) return;                                                    // Stop was pressed meanwhile
+          if (wr === '__fail__') q = await decodeFrame(x.getImageData(0,0,c.width,c.height), true);  // worker unavailable: old way
+          else q = wr ? fromWorker(wr) : null;
+        } else q = await decodeFrame(x.getImageData(0,0,c.width,c.height), false);
         if (q){ show(q, 'Mini App scanner'); stopCam(); return; }
         if (det && !detBroken){
           const r = await det.detect(IS_PHONE ? c : v);
@@ -352,7 +359,7 @@ async function startCam(){
       }catch(e){}
       busy=false;
     }
-    rafId=setTimeout(tick, IS_PHONE ? 600 : 250);
+    rafId=setTimeout(tick, IS_PHONE ? 400 : 250);
   };
   tick();
 }
@@ -465,6 +472,75 @@ function initWasm(){
   wasmReady.catch(() => { wasmReady = null; wasmFailed = true; }); // allow retry on next scan
   return wasmReady;
 }
+/* ===== PHONE ONLY: background decoder (Web Worker) =====
+   The heavy QR decoding runs in a separate thread, so the camera preview stays smooth.
+   Desktop does not use this. If the worker cannot start, the phone falls back to the old method. */
+function workerMain(){
+  importScripts('https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.6/dist/iife/reader/index.js');
+  try{ importScripts('https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js'); }catch(e){}
+  let ready = null, urls = [];
+  function init(){
+    if (ready) return ready;
+    ready = (async () => {
+      for (const u of urls){
+        try{
+          const r = await fetch(u); if (!r.ok) continue;
+          const buf = await r.arrayBuffer(), h = new Uint8Array(buf, 0, 4);
+          if (!(h[0]===0x00 && h[1]===0x61 && h[2]===0x73 && h[3]===0x6d)) continue;
+          ZXingWASM.setZXingModuleOverrides({ wasmBinary: buf, locateFile: (path, prefix) => path.endsWith('.wasm') ? u : prefix + path });
+          return true;
+        }catch(e){}
+      }
+      return false;
+    })();
+    return ready;
+  }
+  self.onmessage = async ev => {
+    const m = ev.data;
+    if (m.type === 'init'){ urls = m.urls; await init(); self.postMessage({type:'ready'}); return; }
+    if (m.type !== 'decode') return;
+    let q = null;
+    try{
+      if (await init()){
+        const img = new ImageData(new Uint8ClampedArray(m.buffer), m.width, m.height);
+        const r = await ZXingWASM.readBarcodes(img, {formats:['QRCode'], tryHarder:true, tryInvert:false, maxNumberOfSymbols:1});
+        if (r.length && r[0].bytes && r[0].bytes.length) q = {bytes: Array.from(r[0].bytes), ecc: r[0].eccLevel};
+      }
+      if (!q && self.jsQR){
+        const j = jsQR(new Uint8ClampedArray(m.buffer), m.width, m.height, {inversionAttempts:'dontInvert'});
+        if (j) q = {bytes: Array.from(j.binaryData && j.binaryData.length ? j.binaryData : new TextEncoder().encode(j.data))};
+      }
+    }catch(e){}
+    self.postMessage({type:'result', id:m.id, q});
+  };
+}
+let worker = null, workerOk = true, workerSeq = 0; const workerPending = new Map();
+function getWorker(){
+  if (worker || !workerOk) return worker;
+  try{
+    const url = URL.createObjectURL(new Blob(['(' + workerMain.toString() + ')()'], {type:'application/javascript'}));
+    worker = new Worker(url);
+    worker.onmessage = ev => { const m = ev.data; if (m.type === 'result'){ const f = workerPending.get(m.id); if (f){ workerPending.delete(m.id); f(m.q || null); } } };
+    worker.onerror = () => { workerOk = false; worker = null; workerPending.forEach(f => f('__fail__')); workerPending.clear(); };
+    worker.postMessage({type:'init', urls: WASM_URLS.map(u => new URL(u, location.href).href)});
+  }catch(e){ workerOk = false; worker = null; }
+  return worker;
+}
+function workerDecode(imgData){
+  return new Promise(resolve => {
+    const w = getWorker(); if (!w){ resolve('__fail__'); return; }
+    const id = ++workerSeq;
+    const t = setTimeout(() => { workerPending.delete(id); resolve(null); }, 12000);
+    workerPending.set(id, r => { clearTimeout(t); resolve(r); });
+    w.postMessage({type:'decode', id, width:imgData.width, height:imgData.height, buffer:imgData.data.buffer}, [imgData.data.buffer]);
+  });
+}
+function fromWorker(r){
+  const bytes = Uint8Array.from(r.bytes);
+  const text = new TextDecoder('utf-8').decode(bytes);
+  return (r.ecc !== undefined && r.ecc !== null) ? {text, bytes, ec: normEc(r.ecc)} : {text, bytes};
+}
+/* ===== end background decoder ===== */
 /* Shared decoder: zxing-wasm first (handles dense/binary QR), jsQR as backup. Both return exact bytes. */
 async function decodeFrame(imgData, light){
   try{
