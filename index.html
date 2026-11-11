@@ -338,6 +338,9 @@ $('bUpload').onclick = () => { stopCam(); $('file').click(); };
 async function loadBitmap(f){
   if (!IS_PHONE) return await createImageBitmap(f); // desktop: original method
   let bmp;
+  // phone: let the browser shrink the photo WHILE decoding, so a huge camera photo never sits in memory at full size
+  try{ bmp = await createImageBitmap(f, {resizeWidth: UPLOAD_MAX_SIDE, resizeQuality: 'medium'}); }
+  catch(e0){
   try{ bmp = await createImageBitmap(f); }
   catch(e){
     bmp = await new Promise((res, rej) => {
@@ -346,6 +349,7 @@ async function loadBitmap(f){
       im.onerror = () => { URL.revokeObjectURL(u); rej(new Error('image')); };
       im.src = u;
     });
+  }
   }
   const w = bmp.width, h = bmp.height, k = Math.min(1, UPLOAD_MAX_SIDE/Math.max(w,h));
   if (k >= 1) return bmp;
