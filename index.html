@@ -111,14 +111,14 @@ if (tg) { try { tg.ready(); tg.expand(); } catch(e){} }
    scanning, go one step down (4K -> 1440p -> 1080p). If a dense QR stops reading,
    go one step up.
    ============================================================ */
-const CAM_WIDTH = 1920;
-const CAM_HEIGHT = 1080;
-const DECODE_MAX_WIDTH = 1600;
+const CAM_WIDTH = 3840;
+const CAM_HEIGHT = 2160;
+const DECODE_MAX_WIDTH = 2400;
 
 /* UPLOAD IMAGE SETTING (PHONE ONLY - desktop keeps the original method): uploaded photos are shrunk so their longest side is at most this many pixels.
    If the phone shows "Aw, Snap!" when you upload, lower it (1800 -> 1400 -> 1000).
    If a dense QR in an uploaded photo is not found, raise it (1800 -> 2200). */
-const UPLOAD_MAX_SIDE = 1000;
+const UPLOAD_MAX_SIDE = 1800;
 /* ========================================================= */
 
 /* Phone = Android/iPhone browser, or Telegram app on Android/iOS. Phones use the lighter upload method (Plan B);
@@ -279,6 +279,12 @@ async function startCam(){
     if (!busy && v.videoWidth){
       busy=true;
       try{
+        // phone: quick native check first; the heavy decoders below run only when a QR is really in view
+        if (IS_PHONE && det){
+          let seen = true;
+          try{ seen = (await det.detect(v)).length > 0; }catch(_){ seen = true; }
+          if (!seen){ busy=false; rafId=setTimeout(tick, 300); return; }
+        }
         const sc=Math.min(1,DECODE_MAX_WIDTH/v.videoWidth);
         c.width=Math.round(v.videoWidth*sc); c.height=Math.round(v.videoHeight*sc); x.drawImage(v,0,0,c.width,c.height);
         const q=await decodeFrame(x.getImageData(0,0,c.width,c.height));
