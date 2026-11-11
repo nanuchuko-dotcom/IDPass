@@ -118,7 +118,7 @@ const DECODE_MAX_WIDTH = 2400;
 /* UPLOAD IMAGE SETTING (PHONE ONLY - desktop keeps the original method): uploaded photos are shrunk so their longest side is at most this many pixels.
    If the phone shows "Aw, Snap!" when you upload, lower it (1800 -> 1400 -> 1000).
    If a dense QR in an uploaded photo is not found, raise it (1800 -> 2200). */
-const UPLOAD_MAX_SIDE = 1800;
+const UPLOAD_MAX_SIDE = 1000;
 
 /* PHONE CAMERA SETTING (PHONE ONLY - desktop keeps CAM_WIDTH/CAM_HEIGHT/DECODE_MAX_WIDTH above).
    A 4K camera stream is too heavy for many phones inside Telegram (freezes / Telegram closes).
@@ -129,7 +129,7 @@ const PHONE_DECODE_MAX_WIDTH = 2400;
 /* PHONE ONLY: read only the center part of the camera picture (faster, smoother).
    0.8 = center 80% of the picture. Use 1 to read the whole picture.
    If the QR is not read when it fills the whole screen, hold the phone a bit farther or set this to 1. */
-const PHONE_CENTER_CROP = 0.8;
+const PHONE_CENTER_CROP = 1;
 /* PHONE ONLY: the phone's built-in QR detector (BarcodeDetector) can crash Telegram's browser on some phones.
    false = do not use it on phones (safe). Set true only to test. Desktop always uses it when available. */
 const PHONE_USE_BARCODE_DETECTOR = false;
@@ -378,21 +378,22 @@ async function startCam(){
         let q;
         if (IS_PHONE){
           let wr = '__fail__';
+          const hard = (heavyCount++ % 3 === 2);          // 2 quick tries, then 1 thorough try (also uses the whole picture)
           if (useBmp){                                    // best path: crop + resize + pixel read all happen off the main thread
             try{
-              const crop = (heavyCount++ % 3 === 2) ? 1 : PHONE_CENTER_CROP;   // every 3rd try uses the whole picture
+              const crop = hard ? 1 : PHONE_CENTER_CROP;   // thorough try uses the whole picture
               const sw=Math.round(v.videoWidth*crop), sh=Math.round(v.videoHeight*crop);
               const sx=Math.round((v.videoWidth-sw)/2), sy=Math.round((v.videoHeight-sh)/2);
               const k=Math.min(1, PHONE_DECODE_MAX_WIDTH/sw);
               const bmp = await createImageBitmap(v, sx, sy, sw, sh, {resizeWidth:Math.round(sw*k), resizeHeight:Math.round(sh*k), resizeQuality:'medium'});
-              wr = await workerDecodeBmp(bmp);
+              wr = await workerDecodeBmp(bmp, hard);
             }catch(_){ wr = '__fail__'; }
             if (wr === '__fail__') useBmp = false;        // this phone cannot do it: use the previous method from now on
           }
           if (wr === '__fail__'){
             const sc=Math.min(1,PHONE_DECODE_MAX_WIDTH/v.videoWidth);
             c.width=Math.round(v.videoWidth*sc); c.height=Math.round(v.videoHeight*sc); x.drawImage(v,0,0,c.width,c.height);
-            wr = await workerDecode(x.getImageData(0,0,c.width,c.height));
+            wr = await workerDecode(x.getImageData(0,0,c.width,c.height), hard);
           }
           if (!stream) return;                            // Stop was pressed meanwhile
           if (wr === '__fail__') q = await decodeFrame(x.getImageData(0,0,c.width,c.height), true);  // worker unavailable: old way
@@ -410,7 +411,7 @@ async function startCam(){
       }catch(e){}
       busy=false;
     }
-    rafId=setTimeout(tick, IS_PHONE ? 400 : 250);
+    rafId=setTimeout(tick, IS_PHONE ? (workerOk ? 60 : 400) : 250);
   };
   tick();
 }
@@ -547,15 +548,16 @@ function workerMain(){
     })();
     return ready;
   }
-  async function decodeBuf(buffer, width, height){
+  async function decodeBuf(buffer, width, height, hard){
     let q = null;
     try{
       if (await init()){
         const img = new ImageData(new Uint8ClampedArray(buffer), width, height);
-        const r = await ZXingWASM.readBarcodes(img, {formats:['QRCode'], tryHarder:true, tryInvert:false, maxNumberOfSymbols:1});
+        let r = await ZXingWASM.readBarcodes(img, {formats:['QRCode'], tryHarder:false, tryInvert:false, maxNumberOfSymbols:1});   // fast pass
+        if (!r.length && hard) r = await ZXingWASM.readBarcodes(img, {formats:['QRCode'], tryHarder:true, tryInvert:false, maxNumberOfSymbols:1});   // thorough pass (only every 3rd try)
         if (r.length && r[0].bytes && r[0].bytes.length) q = {bytes: Array.from(r[0].bytes), ecc: r[0].eccLevel};
       }
-      if (!q && self.jsQR){
+      if (!q && hard && self.jsQR){
         const j = jsQR(new Uint8ClampedArray(buffer), width, height, {inversionAttempts:'dontInvert'});
         if (j) q = {bytes: Array.from(j.binaryData && j.binaryData.length ? j.binaryData : new TextEncoder().encode(j.data))};
       }
@@ -566,7 +568,7 @@ function workerMain(){
     const m = ev.data;
     if (m.type === 'init'){ urls = m.urls; await init(); self.postMessage({type:'ready'}); return; }
     if (m.type === 'decode'){
-      const q = await decodeBuf(m.buffer, m.width, m.height);
+      const q = await decodeBuf(m.buffer, m.width, m.height, m.hard);
       self.postMessage({type:'result', id:m.id, q});
       return;
     }
@@ -577,7 +579,7 @@ function workerMain(){
         cx.drawImage(b, 0, 0);
         const d = cx.getImageData(0, 0, b.width, b.height);
         if (b.close) b.close();
-        q = await decodeBuf(d.data.buffer, b.width, b.height);
+        q = await decodeBuf(d.data.buffer, b.width, b.height, m.hard);
       }catch(e){ fail = true; }
       self.postMessage({type:'result', id:m.id, q, fail});
     }
@@ -595,22 +597,22 @@ function getWorker(){
   }catch(e){ workerOk = false; worker = null; }
   return worker;
 }
-function workerDecode(imgData){
+function workerDecode(imgData, hard){
   return new Promise(resolve => {
     const w = getWorker(); if (!w){ resolve('__fail__'); return; }
     const id = ++workerSeq;
     const t = setTimeout(() => { workerPending.delete(id); resolve(null); }, 12000);
     workerPending.set(id, r => { clearTimeout(t); resolve(r); });
-    w.postMessage({type:'decode', id, width:imgData.width, height:imgData.height, buffer:imgData.data.buffer}, [imgData.data.buffer]);
+    w.postMessage({type:'decode', id, hard, width:imgData.width, height:imgData.height, buffer:imgData.data.buffer}, [imgData.data.buffer]);
   });
 }
-function workerDecodeBmp(bmp){
+function workerDecodeBmp(bmp, hard){
   return new Promise(resolve => {
     const w = getWorker(); if (!w){ try{ bmp.close(); }catch(_){} resolve('__fail__'); return; }
     const id = ++workerSeq;
     const t = setTimeout(() => { workerPending.delete(id); resolve(null); }, 12000);
     workerPending.set(id, r => { clearTimeout(t); resolve(r); });
-    w.postMessage({type:'decodeBmp', id, bmp}, [bmp]);
+    w.postMessage({type:'decodeBmp', id, hard, bmp}, [bmp]);
   });
 }
 function fromWorker(r){
