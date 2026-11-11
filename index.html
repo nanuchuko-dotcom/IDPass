@@ -114,7 +114,16 @@ if (tg) { try { tg.ready(); tg.expand(); } catch(e){} }
 const CAM_WIDTH = 3840;
 const CAM_HEIGHT = 2160;
 const DECODE_MAX_WIDTH = 2400;
+
+/* UPLOAD IMAGE SETTING (PHONE ONLY - desktop keeps the original method): uploaded photos are shrunk so their longest side is at most this many pixels.
+   If the phone shows "Aw, Snap!" when you upload, lower it (1800 -> 1400 -> 1000).
+   If a dense QR in an uploaded photo is not found, raise it (1800 -> 2200). */
+const UPLOAD_MAX_SIDE = 1800;
 /* ========================================================= */
+
+/* Phone = Android/iPhone browser, or Telegram app on Android/iOS. Phones use the lighter upload method (Plan B);
+   desktop browsers and Telegram Desktop use the original upload method. */
+const IS_PHONE = /Android|iPhone|iPad|iPod|Mobi/i.test(navigator.userAgent) || (!!tg && (tg.platform === 'android' || tg.platform === 'ios'));
 
 const $ = id => document.getElementById(id);
 const status = (t, err) => { const s=$('status'); s.textContent=t||''; s.className=err?'err':''; };
@@ -327,6 +336,7 @@ $('bNative').onclick = () => {
 /* 3. Upload image */
 $('bUpload').onclick = () => { stopCam(); $('file').click(); };
 async function loadBitmap(f){
+  if (!IS_PHONE) return await createImageBitmap(f); // desktop: original method
   let bmp;
   try{ bmp = await createImageBitmap(f); }
   catch(e){
@@ -337,7 +347,7 @@ async function loadBitmap(f){
       im.src = u;
     });
   }
-  const w = bmp.width, h = bmp.height, k = Math.min(1, 2600/Math.max(w,h));
+  const w = bmp.width, h = bmp.height, k = Math.min(1, UPLOAD_MAX_SIDE/Math.max(w,h));
   if (k >= 1) return bmp;
   const c = document.createElement('canvas'); c.width = Math.round(w*k); c.height = Math.round(h*k);
   c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
@@ -346,6 +356,7 @@ async function loadBitmap(f){
 }
 $('file').onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
+  if (!IS_PHONE) e.target.value=''; // desktop: original order
   status('Reading image…');
   try{
     const bmp = await loadBitmap(f);
@@ -354,7 +365,7 @@ $('file').onchange = async e => {
     else if (wasmFailed) status('Dense-QR decoder could not download (network). Check your connection and try again.', true);
     else status('No QR code found. Try a sharper, cropped image with the whole code visible.', true);
   }catch(err){ status('Could not read that image file.', true); }
-  finally{ try{ e.target.value=''; }catch(_){} }
+  finally{ if (IS_PHONE){ try{ e.target.value=''; }catch(_){} } }
 };
 /* zxing wasm loader: fetch the .wasm ourselves from several hosts (local copy first), then hand it to zxing */
 const WASM_URLS = [
@@ -410,13 +421,14 @@ async function decodeBitmap(bmp){
   const w=bmp.width, h=bmp.height;
   for (const s of [1, 2, 0.5, 3, 1.5, 0.75]){
     const cw=Math.round(w*s), ch=Math.round(h*s);
-    if (cw>4000 || ch>4000 || cw<200) continue;
+    if (cw>(IS_PHONE ? UPLOAD_MAX_SIDE*1.5 : 4000) || ch>(IS_PHONE ? UPLOAD_MAX_SIDE*1.5 : 4000) || cw<200) continue;
     const c=document.createElement('canvas'); c.width=cw; c.height=ch;
     const x=c.getContext('2d',{willReadFrequently:true});
     x.imageSmoothingEnabled = s<1;
     x.fillStyle='#fff'; x.fillRect(0,0,cw,ch);
     x.drawImage(bmp,0,0,cw,ch);
     const q=await decodeFrame(x.getImageData(0,0,cw,ch));
+    if (IS_PHONE) c.width=c.height=0; // phone: free memory before the next try
     if (q) return q;
   }
   if ('BarcodeDetector' in window){
