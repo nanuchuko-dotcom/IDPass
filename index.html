@@ -224,52 +224,39 @@
   </head>
   <body>
     <main>
-       
       <h1>Scan a QR code</h1>
-       
       <p class="sub">
         Pick how you want to scan. The payload shows here, no other app needed.
       </p>
 
-       
       <div class="opts">
-           
         <button class="opt" id="bMini">
           <b>Mini App scanner</b><span>Opens the camera inside this page</span>
         </button>
-           
         <button class="opt" id="bNative">
           <b>Telegram scanner</b><span>Uses Telegram's built-in QR popup</span>
         </button>
-           
         <button class="opt" id="bUpload">
           <b>Upload image</b
           ><span>Choose a screenshot or photo of a QR code</span>
         </button>
-         
       </div>
-        <input type="file" id="file" accept="image/*" hidden />
+      <input type="file" id="file" accept="image/*" hidden />
 
-       
       <div id="cam">
         <video id="vid" playsinline muted></video
         ><button id="bStop">Stop</button>
       </div>
-       
       <p id="status" role="status" aria-live="polite"></p>
 
-       
       <section id="out" aria-label="Scan result">
-           
         <div class="meta" id="meta"></div>
-           
         <div class="tabs" role="group" aria-label="Payload format">
-                <button data-f="text" aria-pressed="true">Text</button>      
-          <button data-f="hex" aria-pressed="false">Hex</button>      
-          <button data-f="b64" aria-pressed="false">Base64</button>      
-          <button data-f="qr" aria-pressed="false">QR</button>    
+          <button data-f="text" aria-pressed="true">Text</button>
+          <button data-f="hex" aria-pressed="false">Hex</button>
+          <button data-f="b64" aria-pressed="false">Base64</button>
+          <button data-f="qr" aria-pressed="false">QR</button>
         </div>
-           
         <img
           id="pic"
           alt="Image found in payload"
@@ -281,45 +268,29 @@
             display: block;
           "
         />
-           
         <pre id="payload"></pre>
-           
         <div id="qrbox">
-               
           <div id="qrctl">
-                    <label for="ecSel">Error correction</label>        
+            <label for="ecSel">Error correction</label>
             <select id="ecSel">
-                       
               <option value="auto">Auto (match scan)</option>
-                       
               <option value="L">L</option>
-                       
               <option value="M">M</option>
-                       
               <option value="Q">Q</option>
-                       
               <option value="H">H</option>
-                     
             </select>
-                 
           </div>
-               
           <img id="qrimg" alt="Re-encoded QR code of the exact payload bytes" />
-               
           <div class="meta" id="qrinfo"></div>
-             
         </div>
-           
         <div class="row">
-                <button class="primary" id="bCopy">Copy payload</button>      
+          <button class="primary" id="bCopy">Copy payload</button>
           <button class="primary" id="bSave" style="display: none">
             Save PNG
           </button>
-               
-          <button class="primary" id="bSend" style="display: none"></button>    
-            <button id="bClear">Clear</button>    
+          <button class="primary" id="bSend" style="display: none"></button>
+          <button id="bClear">Clear</button>
         </div>
-         
       </section>
     </main>
 
@@ -332,18 +303,53 @@
         } catch (e) {}
       }
 
-      /* ===================== CAMERA SETTINGS ===================== */
+      /* ===================== CAMERA SETTINGS =====================
+   HOW TO CHANGE: edit the 3 numbers below (CAM_WIDTH, CAM_HEIGHT, DECODE_MAX_WIDTH)
+   together, save the file, upload it again to your hosting (GitHub Pages),
+   then close and reopen the mini app.
+
+   NOW (4K):    CAM_WIDTH = 3840;  CAM_HEIGHT = 2160;  DECODE_MAX_WIDTH = 2400;
+   1440p:       CAM_WIDTH = 2560;  CAM_HEIGHT = 1440;  DECODE_MAX_WIDTH = 2000;
+   1080p:       CAM_WIDTH = 1920;  CAM_HEIGHT = 1080;  DECODE_MAX_WIDTH = 1600;
+
+   CAM_WIDTH, CAM_HEIGHT : camera resolution requested from the phone.
+   DECODE_MAX_WIDTH      : frames wider than this are shrunk before reading the QR.
+
+   Higher numbers = reads dense QR from farther away, but heavier on the phone.
+   Lower numbers  = lighter and more stable. If Telegram freezes or closes while
+   scanning, go one step down (4K -> 1440p -> 1080p). If a dense QR stops reading,
+   go one step up.
+   ============================================================ */
       const CAM_WIDTH = 3840;
       const CAM_HEIGHT = 2160;
       const DECODE_MAX_WIDTH = 2400;
 
+      /* UPLOAD IMAGE SETTING (PHONE ONLY - desktop keeps the original method): uploaded photos are shrunk so their longest side is at most this many pixels.
+   If the phone shows "Aw, Snap!" when you upload, lower it (1800 -> 1400 -> 1000).
+   If a dense QR in an uploaded photo is not found, raise it (1800 -> 2200). */
       const UPLOAD_MAX_SIDE = 1000;
 
-      const PHONE_CAM_WIDTH = 1920;
-      const PHONE_CAM_HEIGHT = 1080;
-      const PHONE_DECODE_MAX_WIDTH = 1600;
+      /* PHONE CAMERA SETTING (PHONE ONLY - desktop keeps CAM_WIDTH/CAM_HEIGHT/DECODE_MAX_WIDTH above).
+   A 4K camera stream is too heavy for many phones inside Telegram (freezes / Telegram closes).
+   To test higher on the phone: 1440p -> 2560, 1440, 2000   4K -> 3840, 2160, 2400 */
+      const PHONE_CAM_WIDTH = 3840;
+      const PHONE_CAM_HEIGHT = 2160;
+      const PHONE_DECODE_MAX_WIDTH = 2400;
+      /* PHONE ONLY: read only the center part of the camera picture (faster, smoother).
+   0.8 = center 80% of the picture. Use 1 to read the whole picture.
+   If the QR is not read when it fills the whole screen, hold the phone a bit farther or set this to 1. */
+      const PHONE_CENTER_CROP = 0.8;
+      /* PHONE ONLY: the phone's built-in QR detector (BarcodeDetector) can crash Telegram's browser on some phones.
+   false = do not use it on phones (safe). Set true only to test. Desktop always uses it when available. */
+      const PHONE_USE_BARCODE_DETECTOR = false;
+      /* PHONE ONLY: the quick "looks like a QR?" pattern check before decoding.
+   false = every frame goes to the background decoder (smooth, and reads the QR more reliably).
+   true  = decode only when the quick check sees QR-like squares (lighter, but it can miss a dense QR). */
+      const PHONE_USE_PATTERN_GATE = false;
       /* ========================================================= */
 
+      /* Phone = Android/iPhone browser, or Telegram app on Android/iOS. Phones use the lighter upload method (Plan B);
+   desktop browsers and Telegram Desktop use the original upload method. */
       const IS_PHONE =
         /Android|iPhone|iPad|iPod|Mobi/i.test(navigator.userAgent) ||
         (!!tg && (tg.platform === "android" || tg.platform === "ios"));
@@ -360,6 +366,7 @@
         stream = null,
         rafId = 0;
 
+      /* ===== crash trail: remembers the last step, so after an unexpected close the page can tell you where it happened ===== */
       function mark(step) {
         try {
           localStorage.setItem("qrstep", step);
@@ -390,6 +397,7 @@
       window.addEventListener("pagehide", () => mark("idle"));
 
       function bytesOf(r) {
+        // r: {text, bytes}
         return r.bytes && r.bytes.length
           ? r.bytes
           : new TextEncoder().encode(r.text || "");
@@ -403,7 +411,7 @@
         if (!m) return null;
         let msg = JSON.stringify({ fan: m[1], qr_payload_b64: btoa(s) });
         if (new TextEncoder().encode(msg).length > 4096)
-          msg = JSON.stringify({ fan: m[1] });
+          msg = JSON.stringify({ fan: m[1] }); // sendData limit
         return { fan: m[1], msg };
       }
       function show(r, source) {
@@ -479,6 +487,7 @@
         return "";
       }
 
+      /* Exact QR re-encode: raw bytes -> byte-mode QR (no text conversion) */
       function normEc(e) {
         e = String(e || "")
           .toUpperCase()
@@ -487,12 +496,12 @@
       }
       function buildQR(b, wanted) {
         let s = "";
-        for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+        for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); // 1 char = 1 byte
         const order = ["H", "Q", "M", "L"];
         let tryList;
         if (wanted === "auto") {
           const start = normEc(result && result.ec) || "L";
-          tryList = order.slice(order.indexOf(start));
+          tryList = order.slice(order.indexOf(start)); // fall back to lower EC if too big
         } else tryList = [wanted];
         for (const ec of tryList) {
           try {
@@ -640,6 +649,60 @@
       };
 
       /* 1. Mini App scanner: camera inside the page */
+      /* Cheap check for QR finder patterns (dark-light-dark-light-dark = 1:1:3:1:1) on a small frame.
+   Phones without a native QR detector use it, so the heavy decoders run only when a QR is really in view. */
+      function looksLikeQR(d) {
+        const w = d.width,
+          h = d.height,
+          px = d.data,
+          row = new Uint8Array(w);
+        let hits = 0;
+        for (let y = 2; y < h; y += 3) {
+          let sum = 0;
+          for (let x = 0; x < w; x++) {
+            const i = (y * w + x) * 4,
+              l = (px[i] * 77 + px[i + 1] * 150 + px[i + 2] * 29) >> 8;
+            row[x] = l;
+            sum += l;
+          }
+          const th = sum / w,
+            runs = [];
+          let cur = row[0] < th,
+            len = 1;
+          for (let x = 1; x < w; x++) {
+            const b = row[x] < th;
+            if (b === cur) len++;
+            else {
+              runs.push(len);
+              cur = b;
+              len = 1;
+            }
+          }
+          runs.push(len);
+          for (let i = 0; i + 4 < runs.length; i++) {
+            const a = runs[i],
+              b = runs[i + 1],
+              c = runs[i + 2],
+              e = runs[i + 3],
+              f = runs[i + 4],
+              u = (a + b + c + e + f) / 7;
+            if (u < 1.5) continue;
+            const t = u * 0.6;
+            if (
+              Math.abs(a - u) < t &&
+              Math.abs(b - u) < t &&
+              Math.abs(c - 3 * u) < 3 * t &&
+              Math.abs(e - u) < t &&
+              Math.abs(f - u) < t
+            ) {
+              hits++;
+              break;
+            }
+          }
+          if (hits >= 6) return true;
+        }
+        return false;
+      }
       async function startCam() {
         stopCam();
         mark("opening camera");
@@ -649,7 +712,7 @@
             width: { ideal: IS_PHONE ? PHONE_CAM_WIDTH : CAM_WIDTH },
             height: { ideal: IS_PHONE ? PHONE_CAM_HEIGHT : CAM_HEIGHT },
           };
-          if (IS_PHONE) vc.frameRate = { ideal: 30, max: 30 };
+          if (IS_PHONE) vc.frameRate = { ideal: 30, max: 30 }; // phone: steady 30 fps
           stream = await navigator.mediaDevices.getUserMedia({ video: vc });
           try {
             await stream
@@ -663,21 +726,67 @@
           );
           return;
         }
-
+        if (IS_PHONE) {
+          try {
+            const tr = stream.getVideoTracks()[0];
+            if (/ultra|wide|macro|depth/i.test(tr.label || "")) {
+              const devs = (
+                await navigator.mediaDevices.enumerateDevices()
+              ).filter(
+                (d) =>
+                  d.kind === "videoinput" &&
+                  /back|rear|environment/i.test(d.label) &&
+                  !/ultra|wide|macro|depth|tele/i.test(d.label),
+              );
+              if (devs.length) {
+                const s2 = await navigator.mediaDevices.getUserMedia({
+                  video: {
+                    deviceId: { exact: devs[0].deviceId },
+                    width: { ideal: PHONE_CAM_WIDTH },
+                    height: { ideal: PHONE_CAM_HEIGHT },
+                    frameRate: { ideal: 30, max: 30 },
+                  },
+                });
+                stream.getTracks().forEach((t) => t.stop());
+                stream = s2;
+                try {
+                  await stream
+                    .getVideoTracks()[0]
+                    .applyConstraints({
+                      advanced: [{ focusMode: "continuous" }],
+                    });
+                } catch (_) {}
+              }
+            }
+          } catch (_) {}
+        }
         const v = $("vid");
         v.srcObject = stream;
         await v.play();
         $("cam").style.display = "block";
         status("Point the camera at the QR code.");
-        mark("camera running"); // Ensure WASM is initialized on main thread
-
-        initWasm();
-
+        mark("camera running");
+        if (IS_PHONE) getWorker(); // start loading the background decoder now
         const c = document.createElement("canvas"),
           x = c.getContext("2d", { willReadFrequently: true });
-        let busy = false;
+        const g = document.createElement("canvas"),
+          gx = g.getContext("2d", { willReadFrequently: true });
+        const det =
+          (IS_PHONE ? PHONE_USE_BARCODE_DETECTOR : true) &&
+          "BarcodeDetector" in window
+            ? new BarcodeDetector({ formats: ["qr_code"] })
+            : null;
+        let busy = false,
+          detBroken = false,
+          misses = 0,
+          heavyCount = 0,
+          useBmp =
+            IS_PHONE &&
+            typeof OffscreenCanvas !== "undefined" &&
+            typeof createImageBitmap === "function";
         const t0 = Date.now();
-
+        const dc = document.createElement("canvas"),
+          dx = dc.getContext("2d");
         const tick = async () => {
           if (!stream) return;
           if (Date.now() - t0 > 90000) {
@@ -689,27 +798,113 @@
           }
           if (!busy && v.videoWidth) {
             busy = true;
+            let heavy = false;
             try {
+              mark("checking frame");
+              if (IS_PHONE && (PHONE_USE_PATTERN_GATE || !workerOk)) {
+                // gate is skipped while the background decoder is working
+                // phone: cheap checks first; the heavy decoders run only when a QR is really in view
+                let pass = true;
+                if (det && !detBroken) {
+                  try {
+                    const ds = Math.min(1, 960 / v.videoWidth);
+                    dc.width = Math.round(v.videoWidth * ds);
+                    dc.height = Math.round(v.videoHeight * ds);
+                    dx.drawImage(v, 0, 0, dc.width, dc.height);
+                    pass = (await det.detect(dc)).length > 0;
+                  } catch (_) {
+                    detBroken = true;
+                  } // detector unavailable on this phone: use the pattern check below
+                }
+                if (!det || detBroken) {
+                  const gs = Math.min(1, 960 / v.videoWidth);
+                  g.width = Math.round(v.videoWidth * gs);
+                  g.height = Math.round(v.videoHeight * gs);
+                  gx.drawImage(v, 0, 0, g.width, g.height);
+                  pass = looksLikeQR(gx.getImageData(0, 0, g.width, g.height));
+                }
+                if (!pass) {
+                  misses++;
+                  busy = false;
+                  rafId = setTimeout(tick, 350 + Math.min(350, misses * 50));
+                  return;
+                } // longer pauses while nothing QR-like is in view
+                misses = 0;
+              }
+              heavy = true;
               mark("decoding frame");
-              const maxW = IS_PHONE ? PHONE_DECODE_MAX_WIDTH : DECODE_MAX_WIDTH;
-              const sc = Math.min(1, maxW / v.videoWidth);
-              c.width = Math.round(v.videoWidth * sc);
-              c.height = Math.round(v.videoHeight * sc);
-              x.drawImage(v, 0, 0, c.width, c.height);
-
-              const q = await decodeFrame(
-                x.getImageData(0, 0, c.width, c.height),
-                false,
-              );
+              await new Promise((r) => setTimeout(r, 0)); // let the screen repaint before heavy work
+              let q;
+              if (IS_PHONE) {
+                let wr = "__fail__";
+                const hard = heavyCount++ % 3 === 2; // 2 quick tries, then 1 thorough try (also uses the whole picture)
+                if (useBmp) {
+                  // best path: crop + resize + pixel read all happen off the main thread
+                  try {
+                    const crop = hard ? 1 : PHONE_CENTER_CROP; // thorough try uses the whole picture
+                    const sw = Math.round(v.videoWidth * crop),
+                      sh = Math.round(v.videoHeight * crop);
+                    const sx = Math.round((v.videoWidth - sw) / 2),
+                      sy = Math.round((v.videoHeight - sh) / 2);
+                    const k = Math.min(1, PHONE_DECODE_MAX_WIDTH / sw);
+                    const bmp = await createImageBitmap(v, sx, sy, sw, sh, {
+                      resizeWidth: Math.round(sw * k),
+                      resizeHeight: Math.round(sh * k),
+                      resizeQuality: "medium",
+                    });
+                    wr = await workerDecodeBmp(bmp, hard);
+                  } catch (_) {
+                    wr = "__fail__";
+                  }
+                  if (wr === "__fail__") useBmp = false; // this phone cannot do it: use the previous method from now on
+                }
+                if (wr === "__fail__") {
+                  const sc = Math.min(1, PHONE_DECODE_MAX_WIDTH / v.videoWidth);
+                  c.width = Math.round(v.videoWidth * sc);
+                  c.height = Math.round(v.videoHeight * sc);
+                  x.drawImage(v, 0, 0, c.width, c.height);
+                  wr = await workerDecode(
+                    x.getImageData(0, 0, c.width, c.height),
+                    hard,
+                  );
+                }
+                if (!stream) return; // Stop was pressed meanwhile
+                if (wr === "__fail__")
+                  q = await decodeFrame(
+                    x.getImageData(0, 0, c.width, c.height),
+                    true,
+                  ); // worker unavailable: old way
+                else q = wr ? fromWorker(wr) : null;
+              } else {
+                const sc = Math.min(1, DECODE_MAX_WIDTH / v.videoWidth);
+                c.width = Math.round(v.videoWidth * sc);
+                c.height = Math.round(v.videoHeight * sc);
+                x.drawImage(v, 0, 0, c.width, c.height);
+                q = await decodeFrame(
+                  x.getImageData(0, 0, c.width, c.height),
+                  false,
+                );
+              }
               if (q) {
                 show(q, "Mini App scanner");
                 stopCam();
                 return;
               }
+              if (det && !detBroken) {
+                const r = await det.detect(IS_PHONE ? c : v);
+                if (r.length) {
+                  show(
+                    { text: r[0].rawValue, textOnly: true },
+                    "Mini App scanner (text only)",
+                  );
+                  stopCam();
+                  return;
+                }
+              }
             } catch (e) {}
             busy = false;
           }
-          rafId = setTimeout(tick, IS_PHONE ? 120 : 250);
+          rafId = setTimeout(tick, IS_PHONE ? (workerOk ? 60 : 400) : 250);
         };
         tick();
       }
@@ -790,8 +985,9 @@
         $("file").click();
       };
       async function loadBitmap(f) {
-        if (!IS_PHONE) return await createImageBitmap(f);
+        if (!IS_PHONE) return await createImageBitmap(f); // desktop: original method
         let bmp;
+        // phone: let the browser shrink the photo WHILE decoding, so a huge camera photo never sits in memory at full size
         try {
           bmp = await createImageBitmap(f, {
             resizeWidth: UPLOAD_MAX_SIDE,
@@ -830,7 +1026,7 @@
       $("file").onchange = async (e) => {
         const f = e.target.files[0];
         if (!f) return;
-        if (!IS_PHONE) e.target.value = "";
+        if (!IS_PHONE) e.target.value = ""; // desktop: original order
         status("Reading image…");
         try {
           const bmp = await loadBitmap(f);
@@ -858,9 +1054,9 @@
           }
         }
       };
-
+      /* zxing wasm loader: fetch the .wasm ourselves from several hosts (local copy first), then hand it to zxing */
       const WASM_URLS = [
-        "zxing_reader.wasm",
+        "zxing_reader.wasm", // optional: put this file next to the HTML for offline/most reliable use
         "https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.6/dist/reader/zxing_reader.wasm",
         "https://fastly.jsdelivr.net/npm/zxing-wasm@3.1.6/dist/reader/zxing_reader.wasm",
         "https://gcore.jsdelivr.net/npm/zxing-wasm@3.1.6/dist/reader/zxing_reader.wasm",
@@ -885,7 +1081,7 @@
                   h[3] === 0x6d
                 )
               )
-                continue;
+                continue; // not real wasm (e.g. HTML 404 page)
               ZXingWASM.setZXingModuleOverrides({
                 wasmBinary: buf,
                 locateFile: (path, prefix) =>
@@ -902,10 +1098,225 @@
         wasmReady.catch(() => {
           wasmReady = null;
           wasmFailed = true;
-        });
+        }); // allow retry on next scan
         return wasmReady;
       }
-
+      /* ===== PHONE ONLY: background decoder (Web Worker) =====
+   The heavy QR decoding runs in a separate thread, so the camera preview stays smooth.
+   Desktop does not use this. If the worker cannot start, the phone falls back to the old method. */
+      function workerMain() {
+        importScripts(
+          "https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.6/dist/iife/reader/index.js",
+        );
+        try {
+          importScripts(
+            "https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js",
+          );
+        } catch (e) {}
+        let ready = null,
+          urls = [];
+        function init() {
+          if (ready) return ready;
+          ready = (async () => {
+            for (const u of urls) {
+              try {
+                const r = await fetch(u);
+                if (!r.ok) continue;
+                const buf = await r.arrayBuffer(),
+                  h = new Uint8Array(buf, 0, 4);
+                if (
+                  !(
+                    h[0] === 0x00 &&
+                    h[1] === 0x61 &&
+                    h[2] === 0x73 &&
+                    h[3] === 0x6d
+                  )
+                )
+                  continue;
+                ZXingWASM.setZXingModuleOverrides({
+                  wasmBinary: buf,
+                  locateFile: (path, prefix) =>
+                    path.endsWith(".wasm") ? u : prefix + path,
+                });
+                return true;
+              } catch (e) {}
+            }
+            return false;
+          })();
+          return ready;
+        }
+        async function decodeBuf(buffer, width, height, hard) {
+          let q = null;
+          try {
+            if (await init()) {
+              const img = new ImageData(
+                new Uint8ClampedArray(buffer),
+                width,
+                height,
+              );
+              let r = await ZXingWASM.readBarcodes(img, {
+                formats: ["QRCode"],
+                tryHarder: false,
+                tryInvert: false,
+                maxNumberOfSymbols: 1,
+              }); // fast pass
+              if (!r.length && hard)
+                r = await ZXingWASM.readBarcodes(img, {
+                  formats: ["QRCode"],
+                  tryHarder: true,
+                  tryInvert: false,
+                  maxNumberOfSymbols: 1,
+                }); // thorough pass (only every 3rd try)
+              if (r.length && r[0].bytes && r[0].bytes.length)
+                q = { bytes: Array.from(r[0].bytes), ecc: r[0].eccLevel };
+            }
+            if (!q && hard && self.jsQR) {
+              const j = jsQR(new Uint8ClampedArray(buffer), width, height, {
+                inversionAttempts: "dontInvert",
+              });
+              if (j)
+                q = {
+                  bytes: Array.from(
+                    j.binaryData && j.binaryData.length
+                      ? j.binaryData
+                      : new TextEncoder().encode(j.data),
+                  ),
+                };
+            }
+          } catch (e) {}
+          return q;
+        }
+        self.onmessage = async (ev) => {
+          const m = ev.data;
+          if (m.type === "init") {
+            urls = m.urls;
+            await init();
+            self.postMessage({ type: "ready" });
+            return;
+          }
+          if (m.type === "decode") {
+            const q = await decodeBuf(m.buffer, m.width, m.height, m.hard);
+            self.postMessage({ type: "result", id: m.id, q });
+            return;
+          }
+          if (m.type === "decodeBmp") {
+            // picture arrives as an ImageBitmap: pixels are read here, not on the main thread
+            let q = null,
+              fail = false;
+            try {
+              const b = m.bmp,
+                oc = new OffscreenCanvas(b.width, b.height),
+                cx = oc.getContext("2d", { willReadFrequently: true });
+              cx.drawImage(b, 0, 0);
+              const d = cx.getImageData(0, 0, b.width, b.height);
+              if (b.close) b.close();
+              q = await decodeBuf(d.data.buffer, b.width, b.height, m.hard);
+            } catch (e) {
+              fail = true;
+            }
+            self.postMessage({ type: "result", id: m.id, q, fail });
+          }
+        };
+      }
+      let worker = null,
+        workerOk = true,
+        workerSeq = 0;
+      const workerPending = new Map();
+      function getWorker() {
+        if (worker || !workerOk) return worker;
+        try {
+          const url = URL.createObjectURL(
+            new Blob(["(" + workerMain.toString() + ")()"], {
+              type: "application/javascript",
+            }),
+          );
+          worker = new Worker(url);
+          worker.onmessage = (ev) => {
+            const m = ev.data;
+            if (m.type === "result") {
+              const f = workerPending.get(m.id);
+              if (f) {
+                workerPending.delete(m.id);
+                f(m.fail ? "__fail__" : m.q || null);
+              }
+            }
+          };
+          worker.onerror = () => {
+            workerOk = false;
+            worker = null;
+            workerPending.forEach((f) => f("__fail__"));
+            workerPending.clear();
+          };
+          worker.postMessage({
+            type: "init",
+            urls: WASM_URLS.map((u) => new URL(u, location.href).href),
+          });
+        } catch (e) {
+          workerOk = false;
+          worker = null;
+        }
+        return worker;
+      }
+      function workerDecode(imgData, hard) {
+        return new Promise((resolve) => {
+          const w = getWorker();
+          if (!w) {
+            resolve("__fail__");
+            return;
+          }
+          const id = ++workerSeq;
+          const t = setTimeout(() => {
+            workerPending.delete(id);
+            resolve(null);
+          }, 12000);
+          workerPending.set(id, (r) => {
+            clearTimeout(t);
+            resolve(r);
+          });
+          w.postMessage(
+            {
+              type: "decode",
+              id,
+              hard,
+              width: imgData.width,
+              height: imgData.height,
+              buffer: imgData.data.buffer,
+            },
+            [imgData.data.buffer],
+          );
+        });
+      }
+      function workerDecodeBmp(bmp, hard) {
+        return new Promise((resolve) => {
+          const w = getWorker();
+          if (!w) {
+            try {
+              bmp.close();
+            } catch (_) {}
+            resolve("__fail__");
+            return;
+          }
+          const id = ++workerSeq;
+          const t = setTimeout(() => {
+            workerPending.delete(id);
+            resolve(null);
+          }, 12000);
+          workerPending.set(id, (r) => {
+            clearTimeout(t);
+            resolve(r);
+          });
+          w.postMessage({ type: "decodeBmp", id, hard, bmp }, [bmp]);
+        });
+      }
+      function fromWorker(r) {
+        const bytes = Uint8Array.from(r.bytes);
+        const text = new TextDecoder("utf-8").decode(bytes);
+        return r.ecc !== undefined && r.ecc !== null
+          ? { text, bytes, ec: normEc(r.ecc) }
+          : { text, bytes };
+      }
+      /* ===== end background decoder ===== */
+      /* Shared decoder: zxing-wasm first (handles dense/binary QR), jsQR as backup. Both return exact bytes. */
       async function decodeFrame(imgData, light) {
         try {
           if (window.ZXingWASM) {
@@ -957,10 +1368,13 @@
           x.fillRect(0, 0, cw, ch);
           x.drawImage(bmp, 0, 0, cw, ch);
           const q = await decodeFrame(x.getImageData(0, 0, cw, ch));
-          if (IS_PHONE) c.width = c.height = 0;
+          if (IS_PHONE) c.width = c.height = 0; // phone: free memory before the next try
           if (q) return q;
         }
-        if ("BarcodeDetector" in window) {
+        if (
+          (IS_PHONE ? PHONE_USE_BARCODE_DETECTOR : true) &&
+          "BarcodeDetector" in window
+        ) {
           try {
             const r = await new BarcodeDetector({
               formats: ["qr_code"],
@@ -973,7 +1387,7 @@
       document.addEventListener("visibilitychange", () => {
         if (document.hidden) stopCam();
       });
-      if (tg && tg.initData) setTimeout(startCam, 400);
+      if (tg && tg.initData) setTimeout(startCam, 400); // opened from the bot's Scan QR button: camera starts automatically
     </script>
   </body>
 </html>
