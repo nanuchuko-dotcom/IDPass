@@ -235,16 +235,34 @@ function render(){
 }
 document.querySelectorAll('.tabs button').forEach(x=>x.onclick=()=>{fmt=x.dataset.f;render();});
 $('ecSel').onchange = () => { if (fmt==='qr') render(); };
-$('bSave').onclick = () => {
+
+/* Save PNG with Blob/Share support for mobile & desktop */
+$('bSave').onclick = async () => {
   const src = $('qrimg').src;
   if (!src){ status('Nothing to save.', true); return; }
   try{
+    const res = await fetch(src);
+    const blob = await res.blob();
+    
+    if (navigator.canShare && navigator.canShare({ files: [new File([blob], 'qr-exact.png', { type: 'image/png' })] })) {
+      await navigator.share({
+        files: [new File([blob], 'qr-exact.png', { type: 'image/png' })],
+        title: 'QR Code'
+      });
+      return;
+    }
+
+    const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = src; a.download = 'qr-exact.png';
+    a.href = blobUrl; a.download = 'qr-exact.png';
     document.body.appendChild(a); a.click(); a.remove();
-    status('If nothing downloaded, long-press the QR image and save it.');
-  }catch(e){ status('Long-press the QR image to save it.'); }
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    status('Saved successfully.');
+  }catch(e){
+    status('Long-press the QR image to save it.', true);
+  }
 };
+
 $('bCopy').onclick = async () => {
   try { await navigator.clipboard.writeText($('payload').textContent); status('Copied.'); }
   catch(e){
@@ -264,12 +282,17 @@ async function startCam(){
   stopCam();
   mark('opening camera');
   try{
-    const vc = {
-      facingMode: 'environment',
-      width: { ideal: IS_PHONE ? PHONE_CAM_WIDTH : CAM_WIDTH },
-      height: { ideal: IS_PHONE ? PHONE_CAM_HEIGHT : CAM_HEIGHT }
+    const vc = IS_PHONE ? {
+      facingMode: { ideal: 'environment' },
+      width: { ideal: CAM_WIDTH },
+      height: { ideal: CAM_HEIGHT },
+      frameRate: { ideal: 30, max: 30 }
+    } : {
+      facingMode: 'user',
+      width: { ideal: 1280 },
+      height: { ideal: 720 }
     };
-    if (IS_PHONE) vc.frameRate = { ideal: 30, max: 30 };
+
     stream = await navigator.mediaDevices.getUserMedia({ video: vc });
     try{ await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); }catch(e){}
   }catch(e){ status('Camera blocked. Allow camera access, or use another option.', true); return; }
