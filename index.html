@@ -224,39 +224,52 @@
   </head>
   <body>
     <main>
+       
       <h1>Scan a QR code</h1>
+       
       <p class="sub">
         Pick how you want to scan. The payload shows here, no other app needed.
       </p>
 
+       
       <div class="opts">
+           
         <button class="opt" id="bMini">
           <b>Mini App scanner</b><span>Opens the camera inside this page</span>
         </button>
+           
         <button class="opt" id="bNative">
           <b>Telegram scanner</b><span>Uses Telegram's built-in QR popup</span>
         </button>
+           
         <button class="opt" id="bUpload">
           <b>Upload image</b
           ><span>Choose a screenshot or photo of a QR code</span>
         </button>
+         
       </div>
-      <input type="file" id="file" accept="image/*" hidden />
+        <input type="file" id="file" accept="image/*" hidden />
 
+       
       <div id="cam">
         <video id="vid" playsinline muted></video
         ><button id="bStop">Stop</button>
       </div>
+       
       <p id="status" role="status" aria-live="polite"></p>
 
+       
       <section id="out" aria-label="Scan result">
+           
         <div class="meta" id="meta"></div>
+           
         <div class="tabs" role="group" aria-label="Payload format">
-          <button data-f="text" aria-pressed="true">Text</button>
-          <button data-f="hex" aria-pressed="false">Hex</button>
-          <button data-f="b64" aria-pressed="false">Base64</button>
-          <button data-f="qr" aria-pressed="false">QR</button>
+                <button data-f="text" aria-pressed="true">Text</button>      
+          <button data-f="hex" aria-pressed="false">Hex</button>      
+          <button data-f="b64" aria-pressed="false">Base64</button>      
+          <button data-f="qr" aria-pressed="false">QR</button>    
         </div>
+           
         <img
           id="pic"
           alt="Image found in payload"
@@ -268,29 +281,45 @@
             display: block;
           "
         />
+           
         <pre id="payload"></pre>
+           
         <div id="qrbox">
+               
           <div id="qrctl">
-            <label for="ecSel">Error correction</label>
+                    <label for="ecSel">Error correction</label>        
             <select id="ecSel">
+                       
               <option value="auto">Auto (match scan)</option>
+                       
               <option value="L">L</option>
+                       
               <option value="M">M</option>
+                       
               <option value="Q">Q</option>
+                       
               <option value="H">H</option>
+                     
             </select>
+                 
           </div>
+               
           <img id="qrimg" alt="Re-encoded QR code of the exact payload bytes" />
+               
           <div class="meta" id="qrinfo"></div>
+             
         </div>
+           
         <div class="row">
-          <button class="primary" id="bCopy">Copy payload</button>
+                <button class="primary" id="bCopy">Copy payload</button>      
           <button class="primary" id="bSave" style="display: none">
             Save PNG
           </button>
-          <button class="primary" id="bSend" style="display: none"></button>
-          <button id="bClear">Clear</button>
+               
+          <button class="primary" id="bSend" style="display: none"></button>    
+            <button id="bClear">Clear</button>    
         </div>
+         
       </section>
     </main>
 
@@ -561,50 +590,12 @@
       $("ecSel").onchange = () => {
         if (fmt === "qr") render();
       };
-
-      /* Robust Save PNG fallback for Web, Mobile, and Telegram Desktop */
-      $("bSave").onclick = async () => {
+      $("bSave").onclick = () => {
         const src = $("qrimg").src;
         if (!src) {
           status("Nothing to save.", true);
           return;
         }
-
-        // 1. Try Web Share API
-        try {
-          const res = await fetch(src);
-          const blob = await res.blob();
-          if (
-            navigator.canShare &&
-            navigator.canShare({
-              files: [new File([blob], "qr-exact.png", { type: "image/png" })],
-            })
-          ) {
-            await navigator.share({
-              files: [new File([blob], "qr-exact.png", { type: "image/png" })],
-              title: "QR Code",
-            });
-            return;
-          }
-        } catch (e) {}
-
-        // 2. Try Blob URL download
-        try {
-          const res = await fetch(src);
-          const blob = await res.blob();
-          const blobUrl = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = blobUrl;
-          a.download = "qr-exact.png";
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
-          status("Saved successfully.");
-          return;
-        } catch (e) {}
-
-        // 3. Fallback to direct Data URL download (standard desktop web)
         try {
           const a = document.createElement("a");
           a.href = src;
@@ -612,12 +603,11 @@
           document.body.appendChild(a);
           a.click();
           a.remove();
-          status("Saved successfully.");
+          status("If nothing downloaded, long-press the QR image and save it.");
         } catch (e) {
-          status("Right-click or long-press the QR image to save it.", true);
+          status("Long-press the QR image to save it.");
         }
       };
-
       $("bCopy").onclick = async () => {
         try {
           await navigator.clipboard.writeText($("payload").textContent);
@@ -649,56 +639,26 @@
         status("");
       };
 
-      /* 1. Mini App scanner with universal desktop/Telegram fallback */
+      /* 1. Mini App scanner: camera inside the page */
       async function startCam() {
         stopCam();
         mark("opening camera");
         try {
-          if (IS_PHONE) {
-            const vc = {
-              facingMode: { ideal: "environment" },
-              width: { ideal: CAM_WIDTH },
-              height: { ideal: CAM_HEIGHT },
-              frameRate: { ideal: 30, max: 30 },
-            };
-            stream = await navigator.mediaDevices.getUserMedia({ video: vc });
-          } else {
-            // Desktop / Telegram Desktop fallback: try ideal constraints first, fallback to basic video
-            try {
-              stream = await navigator.mediaDevices.getUserMedia({
-                video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-              });
-            } catch (e0) {
-              stream = await navigator.mediaDevices.getUserMedia({
-                video: true,
-              });
-            }
-          }
+          const vc = {
+            facingMode: "environment",
+            width: { ideal: IS_PHONE ? PHONE_CAM_WIDTH : CAM_WIDTH },
+            height: { ideal: IS_PHONE ? PHONE_CAM_HEIGHT : CAM_HEIGHT },
+          };
+          if (IS_PHONE) vc.frameRate = { ideal: 30, max: 30 };
+          stream = await navigator.mediaDevices.getUserMedia({ video: vc });
           try {
             await stream
               .getVideoTracks()[0]
               .applyConstraints({ advanced: [{ focusMode: "continuous" }] });
           } catch (e) {}
         } catch (e) {
-          let inFrame = false;
-          try {
-            inFrame = window.self !== window.top;
-          } catch (e2) {
-            inFrame = true;
-          }
           status(
-            "Camera error: " +
-              ((e && e.name) || "Unknown") +
-              " - " +
-              ((e && e.message) || "") +
-              " | secure=" +
-              window.isSecureContext +
-              " | iframe=" +
-              inFrame +
-              " | mediaDevices=" +
-              !!navigator.mediaDevices +
-              " | " +
-              location.href,
+            "Camera blocked. Allow camera access, or use another option.",
             true,
           );
           return;
@@ -709,9 +669,8 @@
         await v.play();
         $("cam").style.display = "block";
         status("Point the camera at the QR code.");
-        mark("camera running");
+        mark("camera running"); // Ensure WASM is initialized on main thread
 
-        // Ensure WASM is initialized on main thread
         initWasm();
 
         const c = document.createElement("canvas"),
