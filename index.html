@@ -680,8 +680,25 @@
               .applyConstraints({ advanced: [{ focusMode: "continuous" }] });
           } catch (e) {}
         } catch (e) {
+          let inFrame = false;
+          try {
+            inFrame = window.self !== window.top;
+          } catch (e2) {
+            inFrame = true;
+          }
           status(
-            "Camera blocked or unavailable. Allow camera access in your settings, or use another option.",
+            "Camera error: " +
+              ((e && e.name) || "Unknown") +
+              " - " +
+              ((e && e.message) || "") +
+              " | secure=" +
+              window.isSecureContext +
+              " | iframe=" +
+              inFrame +
+              " | mediaDevices=" +
+              !!navigator.mediaDevices +
+              " | " +
+              location.href,
             true,
           );
           return;
